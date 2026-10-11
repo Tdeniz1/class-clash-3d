@@ -6,6 +6,14 @@
   <meta name="theme-color" content="#1c140d">
   <meta name="description" content="Class Clash 3D — a free browser multiplayer arena brawler. Pick a class, hold the zone, knock everyone else out.">
   <title>Class Clash 3D</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <link rel="icon" href="icon-192.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Class Clash">
+  <meta name="format-detection" content="telephone=no">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&family=Rubik:wght@400;500;700&display=swap" rel="stylesheet">
@@ -43,6 +51,7 @@
   <!-- LOBBY -->
   <section id="lobby" class="screen hidden">
     <div class="lobby-wrap">
+      <p id="iosTip" class="ios-tip hidden">📱 <strong>iPhone full screen:</strong> Share → <em>Add to Home Screen</em>, then play from the home-screen icon. <button id="iosTipClose" class="x-btn" aria-label="Dismiss tip">×</button></p>
       <header class="lobby-head">
         <div>
           <div class="eyebrow">Room code</div>
@@ -82,6 +91,7 @@
         <div class="col col-wide">
           <h2>Choose your class</h2>
           <div id="classGrid" class="class-grid"></div>
+          <div id="classDetail" class="class-detail"></div>
         </div>
       </div>
 
@@ -148,6 +158,7 @@
 
   <!-- SETTINGS -->
   <button id="gearBtn" class="gear hidden" aria-label="Settings">⚙</button>
+  <button id="fsBtn" class="gear fs-btn hidden" aria-label="Full screen">⛶</button>
   <div id="settings" class="settings hidden" role="dialog" aria-label="Settings">
     <label>Look sensitivity <input id="sensInput" type="range" min="0.3" max="2.5" step="0.1" value="1"></label>
     <label class="check"><input id="muteInput" type="checkbox"> Mute sounds</label>

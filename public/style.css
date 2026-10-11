@@ -226,3 +226,66 @@ body.touch .score-list { font-size: 11px; min-width: 120px; }
 .join-row .btn-primary { min-width: 140px; }
 .player-list li { flex-wrap: wrap; }
 .player-list .p-name { min-width: 84px; }
+
+/* ---------- v3: mobile full screen, no zoom, compact phone lobby ---------- */
+html, body { height: 100%; height: 100dvh; -webkit-text-size-adjust: 100%; overscroll-behavior: none; }
+* { touch-action: manipulation; }
+#game, #touch, #touch * { touch-action: none; }
+body { position: fixed; inset: 0; }
+#game { height: 100dvh; }
+
+/* keep HUD and controls clear of the notch / rounded corners */
+.score-list { left: calc(12px + env(safe-area-inset-left)); }
+.feed { right: calc(56px + env(safe-area-inset-right)); }
+.gear { right: calc(8px + env(safe-area-inset-right)); }
+.fs-btn { right: calc(56px + env(safe-area-inset-right)); }
+.settings { right: calc(8px + env(safe-area-inset-right)); }
+.cds { right: calc(16px + env(safe-area-inset-right)); bottom: calc(16px + env(safe-area-inset-bottom)); }
+.tbtn-atk { right: calc(24px + env(safe-area-inset-right)); bottom: calc(30px + env(safe-area-inset-bottom)); }
+.tbtn-abl { right: calc(40px + env(safe-area-inset-right)); bottom: calc(132px + env(safe-area-inset-bottom)); }
+.tbtn-jump { right: calc(128px + env(safe-area-inset-right)); bottom: calc(26px + env(safe-area-inset-bottom)); }
+#joyZone { left: env(safe-area-inset-left); }
+.screen { padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+
+.ios-tip { width: 100%; margin: 0; padding: 8px 10px; border-radius: 10px; background: rgba(227,168,87,0.15); border: 1px solid var(--line); font-size: 13px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ios-tip .x-btn { margin-left: auto; }
+.class-detail { display: none; }
+
+/* phones (and any short landscape screen): compact lobby */
+@media (max-height: 520px), (max-width: 600px) {
+  .screen { align-items: flex-start; }
+  .lobby-wrap { gap: 8px; padding-bottom: 96px; padding-right: 44px; }
+  .ios-tip { font-size: 12px; padding: 5px 8px; flex-wrap: nowrap; }
+  .ios-tip .x-btn { min-height: 26px; padding: 0 4px; }
+  .lobby-head { padding: 8px 12px; gap: 8px 12px; align-items: center; }
+  .room-code { font-size: 26px; letter-spacing: 5px; }
+  .seg button { padding: 6px 9px; min-height: 34px; font-size: 13px; }
+  .btn-small { min-height: 36px; padding: 6px 10px; font-size: 13px; }
+  .invite-url { display: none; }
+  .lobby-grid { grid-template-columns: minmax(200px, 1fr) 2fr; gap: 8px; }
+  .col { padding: 10px; }
+  .col h2 { font-size: 15px; margin-bottom: 8px; }
+  .player-list li { padding: 5px 8px; font-size: 13px; flex-wrap: nowrap; }
+  .player-list .p-cls { display: none; }
+  .player-list .p-name { min-width: 0; }
+  .player-list .badge { font-size: 10px; padding: 2px 5px; }
+  .class-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .class-card { padding: 7px; gap: 2px; min-height: 0; }
+  .class-card h3 { font-size: 13px; }
+  .class-card .role, .class-card .stats { font-size: 10px; letter-spacing: 0; }
+  .class-card p { display: none; }
+  .class-detail { display: block; margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: rgba(227,168,87,0.1); font-size: 12.5px; line-height: 1.4; color: var(--sand-2); }
+  .class-detail b { color: var(--sand); }
+  .lobby-foot { position: fixed; left: 0; right: 0; bottom: 0; z-index: 25; border-radius: 0; padding: 8px max(12px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); gap: 6px 12px; }
+  .lobby-foot .rules { display: none; }
+  #startHint { width: auto; flex: 1; order: -1; }
+  .foot-btns .btn { min-height: 44px; padding: 8px 16px; }
+  .home-panel { padding: 18px; gap: 10px; }
+  .logo { font-size: 32px; }
+  .tagline { font-size: 14px; }
+  .results-panel { padding: 16px; gap: 8px; }
+  .score-table td { padding: 5px 6px; }
+}
+@media (max-width: 600px) {
+  .lobby-grid { grid-template-columns: 1fr; }
+}

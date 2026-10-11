@@ -6,6 +6,33 @@ const socket = io();
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 if (isTouch) document.body.classList.add('touch');
 
+// ---------- mobile: block zoom, go full screen ----------
+// iOS Safari ignores user-scalable=no, so stop double-tap and pinch zoom ourselves.
+let lastTouchEnd = 0;
+document.addEventListener('touchend', e => {
+  const now = Date.now();
+  if (now - lastTouchEnd < 350 && e.target.tagName !== 'INPUT') e.preventDefault();
+  lastTouchEnd = now;
+}, { passive: false });
+document.addEventListener('dblclick', e => e.preventDefault(), { passive: false });
+for (const t of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(t, e => e.preventDefault(), { passive: false });
+document.addEventListener('touchmove', e => { if (e.touches.length > 1 || (e.scale && e.scale !== 1)) e.preventDefault(); }, { passive: false });
+
+const rootEl = document.documentElement;
+const canFullscreen = !!(rootEl.requestFullscreen || rootEl.webkitRequestFullscreen);
+const isStandalone = matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || navigator.standalone === true;
+const isFullscreen = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+// Called from taps (browsers only allow full screen in response to a user gesture).
+function goFullscreen() {
+  if (!isTouch || isStandalone || isFullscreen() || !canFullscreen) return;
+  try {
+    const req = rootEl.requestFullscreen || rootEl.webkitRequestFullscreen;
+    const p = req.call(rootEl, { navigationUI: 'hide' });
+    const lock = () => { try { screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => {}); } catch {} };
+    if (p && p.then) p.then(lock).catch(() => {}); else lock();
+  } catch {}
+}
+
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
@@ -43,7 +70,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xf0cf95);
 scene.fog = new THREE.Fog(0xf0cf95, 45, 110);
-const camera = new THREE.PerspectiveCamera(68, 1, 0.1, 250);
+const camera = new THREE.PerspectiveCamera(isTouch ? 74 : 68, 1, 0.1, 250);
 camera.position.set(0, 26, 34);
 camera.lookAt(0, 0, 0);
 
@@ -94,7 +121,7 @@ function buildArena() {
       [3, hz * 2 + off * 2 - 1, -hx - off, 0], [3, hz * 2 + off * 2 - 1, hx + off, 0]]) {
       const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), tierMat[t]);
       m.position.set(x, h / 2, z); m.receiveShadow = true;
-      scene.add(m);
+      scene.add(m); obstacles.push(m); // camera must not end up inside the stands
     }
   }
   const archMat = lam(0x7a5530);
@@ -516,10 +543,12 @@ function enteredRoom(res) {
   unlockAudio();
 }
 $('#createBtn').onclick = () => {
+  goFullscreen();
   const n = readName(); if (!n) return;
   socket.emit('create', { name: n }, enteredRoom);
 };
 function doJoin() {
+  goFullscreen();
   const n = readName(); if (!n) return;
   const code = codeInput.value.trim().toUpperCase();
   if (code.length !== 4) return homeError('Room codes are 4 letters.');
@@ -561,8 +590,9 @@ $('#botSeg').addEventListener('click', e => { const l = e.target.dataset.lvl; if
 $('#teamPick').addEventListener('click', e => { const t = e.target.closest('[data-team]'); if (t) socket.emit('setTeam', t.dataset.team); });
 $('#addBotBtn').onclick = () => socket.emit('addBot');
 $('#fillBotsBtn').onclick = () => { const n = G.MAX_PLAYERS - lobby.players.length; for (let i = 0; i < n; i++) socket.emit('addBot'); };
-$('#readyBtn').onclick = () => { const me = lobbyPlayer(myId); socket.emit('ready', !(me && me.ready)); };
-$('#startBtn').onclick = () => socket.emit('start');
+$('#readyBtn').onclick = () => {
+  goFullscreen(); const me = lobbyPlayer(myId); socket.emit('ready', !(me && me.ready)); };
+$('#startBtn').onclick = () => { goFullscreen(); socket.emit('start'); };
 $('#againBtn').onclick = () => socket.emit('backToLobby');
 $('#copyLinkBtn').onclick = async () => {
   const url = inviteBase + '?room=' + lobby.code;
@@ -616,6 +646,10 @@ function renderLobby() {
     card.querySelector('.pickers').innerHTML = L.players.filter(p => p.cls === card.dataset.cls)
       .map(p => `<span class="dot" title="${esc(p.name)}" style="background:${hex(ringColorFor(p))}"></span>`).join('');
   });
+  const dc = G.CLASSES[me ? me.cls : 'gladiator'];
+  $('#classDetail').innerHTML = `<b>${dc.name}</b> · ${dc.hp} HP · speed ${dc.speed}<br><b>Attack:</b> ${dc.atkText}<br><b>Special:</b> ${dc.ablText}<br><b>Passive:</b> ${dc.passiveText}`;
+  $('#iosTip').classList.toggle('hidden', !(showIosTip && !store.get('cc_iostip_done', false)));
+  updateFsBtn();
   const ready = me && me.ready;
   $('#readyBtn').textContent = ready ? 'Not ready' : "I'm ready";
   $('#readyBtn').classList.toggle('on', !!ready);
@@ -654,6 +688,7 @@ function showScreen(name) {
   $('#hud').classList.toggle('hidden', !playing);
   $('#touch').classList.toggle('hidden', !(playing && isTouch));
   $('#gearBtn').classList.toggle('hidden', name === 'home');
+  if (name === 'home') $('#fsBtn').classList.add('hidden'); else updateFsBtn();
   document.body.classList.toggle('in-match', playing);
   if (!playing && document.pointerLockElement) document.exitPointerLock();
 }
@@ -683,6 +718,20 @@ function resetMatchState() {
   updateMeteorObjs([]); updatePickupObjs([]);
   leaderId = null;
   $('#feed').innerHTML = '';
+}
+
+// ---------- full screen button / iPhone tip ----------
+$('#fsBtn').onclick = goFullscreen;
+function updateFsBtn() {
+  $('#fsBtn').classList.toggle('hidden', !isTouch || isStandalone || !canFullscreen || isFullscreen() || !lobby);
+}
+document.addEventListener('fullscreenchange', () => { updateFsBtn(); resize(); });
+document.addEventListener('webkitfullscreenchange', () => { updateFsBtn(); resize(); });
+// iPhone Safari can't make a web page full screen; only a home-screen install can.
+const showIosTip = isTouch && !isStandalone && (/iPhone|iPod/.test(navigator.userAgent) || !canFullscreen) && !store.get('cc_iostip_done', false);
+$('#iosTipClose').onclick = () => { store.set('cc_iostip_done', true); $('#iosTip').classList.add('hidden'); };
+if (isTouch) {
+  document.querySelector('.rules').innerHTML = '<strong>How to play:</strong> left thumb moves · drag the right side to look · ⚔ attack · ✦ special · ⤒ jump. Stand in the glowing zone to score.';
 }
 
 // ---------- settings ----------
@@ -731,6 +780,7 @@ if (isTouch) {
   const joyBase = $('#joyBase'), joyKnob = $('#joyKnob');
   let joyId = null, jx0 = 0, jy0 = 0;
   const homeJoy = () => { joyBase.style.left = '60px'; joyBase.style.top = ''; joyBase.style.bottom = '50px'; };
+  $('#touch').addEventListener('pointerdown', goFullscreen);
   $('#joyZone').addEventListener('pointerdown', e => {
     joyId = e.pointerId; jx0 = e.clientX; jy0 = e.clientY;
     joyBase.style.left = (jx0 - 60) + 'px'; joyBase.style.top = (jy0 - 60) + 'px'; joyBase.style.bottom = 'auto';
@@ -1140,6 +1190,7 @@ function aimAssist(dt) {
 const raycaster = new THREE.Raycaster();
 let lastFrame = performance.now(), acc = 0;
 let camPos = new THREE.Vector3(0, 26, 34);
+let camDist = 6;
 
 function interpOther(ch, renderT) {
   const b = ch.buf;
@@ -1163,6 +1214,8 @@ function resize() {
   camera.updateProjectionMatrix();
 }
 addEventListener('resize', resize);
+addEventListener('orientationchange', () => setTimeout(resize, 250));
+if (window.visualViewport) visualViewport.addEventListener('resize', resize);
 resize();
 
 function frame() {
@@ -1210,6 +1263,8 @@ function frame() {
     const lp = lobbyPlayer(id);
     const ally = id === myId || (lobby.mode === 'teams' && lp && lp.team === myTeam);
     let visible = !st.dead, opacity = 1;
+    // camera squeezed against a wall: fade your own character so it doesn't block the view
+    if (id === myId && camDist < 3) opacity = 0.35;
     if (st.inv) { if (ally) opacity = 0.3; else visible = false; }
     if (st.prot) opacity = Math.sin(now / 70) > 0 ? 0.35 : 0.9;
     g.visible = visible;
@@ -1268,12 +1323,20 @@ function updateCamera(dt) {
   const dir = new THREE.Vector3(-Math.sin(yaw) * cp, Math.sin(pitch), -Math.cos(yaw) * cp);
   const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
   const target = new THREE.Vector3(g.position.x, g.position.y + 1.7, g.position.z).addScaledVector(right, 0.7);
-  let dist = 5.2;
+  let dist = isTouch ? 6.4 : 5.2; // phones: pull back so your own character covers less of the small screen
   const back = dir.clone().negate();
   raycaster.set(target, back);
   raycaster.far = dist;
   const hit = raycaster.intersectObjects(obstacles, false)[0];
   if (hit) dist = Math.max(0.8, hit.distance - 0.3);
+  // never let the camera swing back over the arena wall
+  const bx = G.ARENA.halfX + 0.3, bz = G.ARENA.halfZ + 0.3;
+  if (back.x > 1e-4) dist = Math.min(dist, (bx - target.x) / back.x);
+  if (back.x < -1e-4) dist = Math.min(dist, (-bx - target.x) / back.x);
+  if (back.z > 1e-4) dist = Math.min(dist, (bz - target.z) / back.z);
+  if (back.z < -1e-4) dist = Math.min(dist, (-bz - target.z) / back.z);
+  dist = Math.max(0.8, dist);
+  camDist = dist;
   const want = target.clone().addScaledVector(back, dist);
   want.y = Math.max(want.y, G.groundHeight(want.x, want.z) + 0.3);
   camera.position.copy(want);

@@ -52,8 +52,8 @@ export const ZONES = [
 ];
 
 export const SPAWNS = [
-  { x: -18, z: -13 }, { x: 18, z: 13 }, { x: -18, z: 13 }, { x: 18, z: -13 },
-  { x: -9, z: -14 }, { x: 9, z: 14 }, { x: 9, z: -14 }, { x: -3, z: 14 },
+  { x: -15, z: -10.5 }, { x: 15, z: 10.5 }, { x: -15, z: 10.5 }, { x: 13.5, z: -12.5 },
+  { x: -8, z: -11.5 }, { x: 8, z: 11.5 }, { x: 8, z: -11.5 }, { x: -2, z: 11.5 },
 ];
 
 export const PLAYER_COLORS = [0xf2c14e, 0x5bc0eb, 0xe4572e, 0x9bc53d, 0xc879ff, 0xff8fab, 0x2ec4b6, 0xf7f7f7];
