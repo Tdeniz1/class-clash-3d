@@ -73,7 +73,8 @@ export const BUFF_TIME = 10;
 export const SPEED_BUFF = 1.5;
 export const PICKUP_KINDS = ['heal', 'power', 'speed'];
 export const PICKUP_SPOTS = [
-  { x: -9, z: -3 }, { x: 9, z: 3 }, { x: 0, z: 12 }, { x: -4, z: -13 }, { x: 16, z: 8 }, { x: -16, z: -5 },
+  { x: -9, z: -3, name: 'West slope' }, { x: 9, z: 3, name: 'East slope' }, { x: 0, z: 12, name: 'North wall' },
+  { x: -4, z: -13, name: 'South floor' }, { x: 16, z: 8, name: 'East corner' }, { x: -16, z: -5, name: 'West corner' },
 ];
 
 export const CLASS_ORDER = ['tank', 'archer', 'mage', 'gladiator', 'rogue', 'paladin', 'bomber', 'lancer'];
@@ -155,7 +156,7 @@ CLASSES.king = {
 
 // ---------- Kill the King ----------
 export const KTK_TIME = 300;     // round length; if no King falls, the healthier King wins
-export const DRAFT_TIME = 10;    // seconds to pick line-up, spots and classes
+export const DRAFT_TIME = 30;    // seconds to pick line-up, spots and classes (ends early when every human is ready)
 export const TEAM_SIZE = 8;      // fighters per team (plus the King); bots fill empty spots
 // Line-ups as [defenders, midfield, attackers]
 export const FORMATIONS = [[3, 3, 2], [2, 4, 2], [4, 2, 2], [2, 3, 3], [3, 2, 3], [2, 2, 4]];
@@ -172,6 +173,13 @@ export const RESPAWN_LINE = 18;
 export const FRENZY_TIME = 30;
 export const FRENZY_RESPAWN = 3;
 export const FRENZY_PICKUP_RATE = 5;
+// King's aura (always on): allies within HEAL_R heal HEAL hp/s, allies within SPEED_R move SPEED x faster
+export const KING_AURA = { HEAL_R: 5, HEAL: 4, SPEED_R: 10, SPEED: 1.2 };
+// The Crowd: knocked-out players vote where the next bonus power-up drops, every CROWD_PERIOD s
+export const CROWD_PERIOD = 12;
+// Match finale: the winning moment plays in slow motion before the results screen
+export const FINALE_TIME = 4.5;   // real seconds
+export const FINALE_SLOW = 0.25;  // game speed during the finale
 
 // ---------- maps ----------
 export const MAPS = {
@@ -194,7 +202,7 @@ export const MAPS = {
       { x: 15, z: 4, w: 4, d: 0.8, h: 1.3 }, { x: 15, z: -4, w: 4, d: 0.8, h: 1.3 },
     ],
     zones: [], spawns: [],
-    pickups: [{ x: 0, z: 7.5 }, { x: 0, z: -7.5 }, { x: -18, z: 0 }, { x: 18, z: 0 }],
+    pickups: [{ x: -18, z: 0, name: 'Red half' }, { x: 0, z: 7.5, name: 'Midfield north' }, { x: 0, z: -7.5, name: 'Midfield south' }, { x: 18, z: 0, name: 'Blue half' }],
   },
 };
 export const mapFor = mode => (mode === 'ktk' ? MAPS.field : MAPS.arena);

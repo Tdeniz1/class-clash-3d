@@ -49,7 +49,7 @@ function newPlayer(name, opts = {}) {
     yaw: 0, pitch: 0, moveX: 0, moveZ: 0,
     hp: 100, maxHp: 100, dead: false, respawnT: 0, protT: 0, invulnT: 0, invisT: 0, shieldT: 0,
     lungeT: 0, lungeHit: false, atkCd: 0, ablCd: 0, lastHurt: -99,
-    aim: null, powT: 0, spdT: 0, pity: 0, dryDeaths: 0, dmgDone: 0, kingDmg: 0, nextCls: null,
+    aim: null, powT: 0, spdT: 0, pity: 0, dryDeaths: 0, dmgDone: 0, kingDmg: 0, guardDmg: 0, nextCls: null, auraT: 0,
     inputs: [], lastSeq: 0, lastInputAt: 0,
     bot: opts.isBot ? { strafeAng: Math.random() * 6.28, strafeT: 0, lastX: 0, lastZ: 0, checkT: 0, unstickT: 0, ux: 0, uz: 0,
       targetId: null, seenT: 0, aimErr: 0, aimGoal: 0, aimT: 0, swingAt: null } : null,
@@ -83,6 +83,7 @@ function lobbyState(room) {
     code: room.code, hostId: room.hostId, mode: room.mode, botLevel: room.botLevel, phase: room.phase, results: room.results,
     map: room.map.key,
     draft: room.phase === 'draft' ? room.draft : null, draftLeft: room.phase === 'draft' ? room.draftT : 0,
+    draftReady: room.phase === 'draft' ? [...room.draftReady] : [],
     players: [...room.players.values()].map(p => ({
       id: p.id, name: p.name, isBot: p.isBot, cls: p.cls, team: p.team, ready: p.ready,
       connected: p.connected, colorIdx: p.colorIdx, role: p.role || null, isKing: !!p.isKing, temp: !!p.temp,
@@ -98,6 +99,13 @@ function pickNewHost(room) {
 }
 
 function removePlayer(room, p) {
+  if (room.mode === 'ktk' && p.inMatch && !p.isBot && ['countdown', 'playing', 'sudden'].includes(room.phase)) {
+    const b = newPlayer(`${G.TEAM_NAMES[p.team]} ${p.role || 'M'}`, { isBot: true, cls: p.cls });
+    Object.assign(b, { temp: true, team: p.team, role: p.role || 'M', lane: p.lane || 0 });
+    initSim(room, b);
+    Object.assign(b, { x: p.x, y: p.y, z: p.z, hp: p.dead ? b.maxHp : p.hp, dead: p.dead, respawnT: p.respawnT });
+    room.players.set(b.id, b);
+  }
   room.players.delete(p.id);
   if (room.hostId === p.id) pickNewHost(room);
   if (humans(room).length === 0) room.emptySince = Date.now();
@@ -109,7 +117,7 @@ function removePlayer(room, p) {
 function initSim(room, p) {
   const c = G.CLASSES[p.cls];
   p.maxHp = c.hp; p.hp = c.hp;
-  p.score = 0; p.kos = 0; p.deaths = 0; p.pity = 0; p.dryDeaths = 0; p.dmgDone = 0; p.kingDmg = 0; p.nextCls = null;
+  p.score = 0; p.kos = 0; p.deaths = 0; p.pity = 0; p.dryDeaths = 0; p.dmgDone = 0; p.kingDmg = 0; p.guardDmg = 0; p.nextCls = null;
   p.inMatch = true; p.inputs = [];
   spawn(room, p, true);
 }
@@ -162,12 +170,27 @@ function beginCountdown(room) {
   room.meteors = []; room.meteorT = 0; room.meteorAnnounced = false;
   room.pickups = initPickups(room);
   room.projectiles = []; room.events = []; room.results = null; room.suddenIds = null;
-  room.contested = false; room.holder = null; room.kingDown = null; room.frenzy = false;
+  room.contested = false; room.holder = null; room.kingDown = null; room.frenzy = false; room.finale = null;
+  room.votes = new Map(); room.crowdT = G.CROWD_PERIOD;
   for (const p of [...room.players.values()]) {
     if (!p.connected) { room.players.delete(p.id); continue; }
     initSim(room, p);
   }
   broadcastLobby(room);
+}
+
+// Late join in Kill the King: replace a bot (midfield first) on the team with fewer humans
+function takeOverBot(room, p) {
+  const bots = [...room.players.values()].filter(q => q.temp && !q.isKing && q.team === p.team && q.inMatch);
+  const bot = bots.find(b => b.role === 'M') || bots.find(b => b.role === 'A') || bots[0];
+  p.role = bot ? bot.role : 'M'; p.lane = bot ? bot.lane : 0;
+  if (bot) p.cls = bot.cls;
+  initSim(room, p);
+  if (bot) {
+    Object.assign(p, { x: bot.x, y: bot.y, z: bot.z, yaw: bot.yaw, hp: bot.dead ? p.maxHp : bot.hp, dead: bot.dead, respawnT: bot.respawnT });
+    room.players.delete(bot.id);
+    evLater(room, { t: 'joined', id: p.id, took: bot.name });
+  }
 }
 
 // ---------- Kill the King: draft ----------
@@ -203,7 +226,7 @@ function assignFreeSlot(draft, p, prefer = ['M', 'A', 'D']) {
 }
 
 function startDraft(room) {
-  room.phase = 'draft'; room.draftT = G.DRAFT_TIME; room.results = null;
+  room.phase = 'draft'; room.draftT = G.DRAFT_TIME; room.results = null; room.draftReady = new Set();
   for (const p of [...room.players.values()]) if (p.isBot || !p.connected) room.players.delete(p.id);
   room.draft = {};
   for (const team of ['red', 'blue']) {
@@ -247,7 +270,7 @@ function endMatch(room, winner) {
   room.phase = 'ended';
   const list = [...room.players.values()].filter(p => p.inMatch && !p.isKing).map(p => ({
     id: p.id, name: p.name, cls: p.cls, team: p.team, isBot: p.isBot, role: p.role || null,
-    score: Math.floor(p.score), kos: p.kos, deaths: p.deaths, dmg: Math.round(p.dmgDone), kingDmg: Math.round(p.kingDmg),
+    score: Math.floor(p.score), kos: p.kos, deaths: p.deaths, dmg: Math.round(p.dmgDone), kingDmg: Math.round(p.kingDmg), guardDmg: Math.round(p.guardDmg),
   })).sort((a, b) => b.score - a.score || b.kos - a.kos);
   const kingHp = {};
   if (room.mode === 'ktk') for (const t of ['red', 'blue']) { const k = kingOf(room, t); kingHp[t] = k ? Math.ceil(Math.max(0, k.hp)) : 0; }
@@ -255,6 +278,7 @@ function endMatch(room, winner) {
     mode: room.mode, winner, players: list,
     teamScore: Object.fromEntries(Object.entries(room.teamScore).map(([k, v]) => [k, Math.floor(v)])),
     teams: [...new Set(list.map(p => p.team))], kingHp,
+    awards: mvpAwards(room.mode, list),
   };
   for (const p of [...room.players.values()]) {
     if (p.temp) { room.players.delete(p.id); continue; }
@@ -264,9 +288,29 @@ function endMatch(room, winner) {
   broadcastLobby(room);
 }
 
+// Post-match award cards. Ties go to humans, then to the higher score.
+function mvpAwards(mode, list) {
+  const pick = (key, lowest = false) => {
+    const pool = lowest ? list.filter(p => p.kos > 0 || p.score > 0) : list.filter(p => p[key] > 0);
+    if (!pool.length) return null;
+    return [...pool].sort((a, b) => (lowest ? a[key] - b[key] : b[key] - a[key]) || (a.isBot - b.isBot) || (b.score - a.score))[0];
+  };
+  const defs = mode === 'ktk'
+    ? [['👑', 'King Slayer', 'kingDmg', 'damage to the King'], ['⚔️', 'Top Fighter', 'kos', 'knockouts'],
+       ['🛡️', 'Royal Guard', 'guardDmg', 'damage near your King'], ['💥', 'Most Damage', 'dmg', 'total damage']]
+    : [['🏛️', 'Zone Master', 'score', 'points'], ['⚔️', 'Top Fighter', 'kos', 'knockouts'],
+       ['💥', 'Most Damage', 'dmg', 'total damage'], ['🧱', 'Survivor', 'deaths', 'deaths', true]];
+  return defs.map(([icon, title, key, unit, lowest]) => {
+    const p = pick(key, lowest);
+    return p && { icon, title, unit, value: p[key], id: p.id, name: p.name, cls: p.cls, team: p.team, isBot: p.isBot };
+  }).filter(Boolean);
+}
+
 // ---------- combat ----------
 
 function ev(room, e) { room.events.push(e); }
+// events raised outside the game tick (joins) go out with the next snapshot
+function evLater(room, e) { (room.pendingEvents ||= []).push(e); }
 
 function enemiesOf(room, p) {
   const out = [];
@@ -303,7 +347,11 @@ function damage(room, src, e, amt, kbx = 0, kbz = 0) {
   const res = e.cls === 'tank' ? 0.7 : 1;
   e.kx += kbx * res; e.kz += kbz * res;
   ev(room, { t: 'hit', id: e.id, by: src ? src.id : null, amt, x: e.x, y: e.y + 2, z: e.z });
-  if (src && src !== e) { src.dmgDone += amt; if (e.isKing) src.kingDmg += amt; }
+  if (src && src !== e) {
+    src.dmgDone += amt;
+    if (e.isKing) src.kingDmg += amt;
+    if (room.mode === 'ktk') { const own = kingOf(room, src.team); if (own && !own.dead && Math.hypot(e.x - own.x, e.z - own.z) < 12) src.guardDmg += amt; }
+  }
   if (e.isKing && src) src.score += amt / 10; // chipping the King is worth points
   if (e.hp <= 0) knockOut(room, src, e);
   return true;
@@ -579,20 +627,26 @@ function botThink(room, p) {
     const own = kingOf(room, p.team), foe = kingOf(room, otherTeam(p.team));
     holdR = 2.5;
     if (p.role === 'D') {
-      // guard a spot in front of our King and chase anyone who gets close to him
+      // cover our whole half: chase any enemy on our side, otherwise guard in front of the King
       const kx = own ? own.x : -fwd * G.KING_HOME;
       goal = { x: kx + fwd * 6, z: (p.lane || 0) * 0.6 };
-      e = own ? nearestTo(own.x, own.z, 16) : null;
-      engage = 30;
+      let best = null, bd = Infinity;
+      for (const q of visible) {
+        if (q.x * fwd > 0) continue; // only enemies in our half
+        const dd = Math.hypot(q.x - p.x, q.z - p.z);
+        if (dd < bd) { bd = dd; best = q; }
+      }
+      e = best;
+      engage = 40;
     } else if (p.role === 'A') {
       // push for the enemy King; fight whoever blocks the way
       goal = foe && !foe.dead ? { x: foe.x, z: foe.z } : { x: fwd * G.KING_HOME, z: 0 };
       e = foe && !foe.dead && Math.hypot(foe.x - p.x, foe.z - p.z) < 14 ? foe : nearestTo(p.x, p.z, 6);
     } else {
-      // midfield: hold the middle, take on anyone nearby
-      goal = { x: -fwd * 3, z: (p.lane || 0) };
-      e = nearestTo(p.x, p.z, 13);
-      engage = 13;
+      // midfield: roam the whole map, hunt anyone within reach, otherwise push just past halfway
+      goal = { x: fwd * 6, z: (p.lane || 0) };
+      e = nearestTo(p.x, p.z, 18);
+      engage = 18;
     }
     // bots respect their zone (humans don't)
     if (p.role === 'D' && goal.x * fwd > -1) goal.x = -fwd;
@@ -753,7 +807,7 @@ function clampBotRole(room, p) {
 
 // ---------- tick ----------
 
-function applyInput(room, p, inp, frozen) {
+function applyInput(room, p, inp, frozen, dt = G.DT) {
   const c = G.CLASSES[p.cls];
   let mx = Number(inp.mx) || 0, mz = Number(inp.mz) || 0;
   const m = Math.hypot(mx, mz);
@@ -763,7 +817,7 @@ function applyInput(room, p, inp, frozen) {
   if (Number.isFinite(inp.pitch)) p.pitch = Math.max(-1.2, Math.min(1.2, inp.pitch));
   if (Number.isFinite(inp.ax) && Number.isFinite(inp.ay) && Number.isFinite(inp.az)) p.aim = { x: inp.ax, y: inp.ay, z: inp.az };
   p.moveX = mx; p.moveZ = mz;
-  if (!p.dead) G.stepMove(p, { mx, mz, jump: !frozen && !!inp.jump }, G.DT, c.speed * (p.spdT > 0 ? G.SPEED_BUFF : 1), room.map);
+  if (!p.dead) G.stepMove(p, { mx, mz, jump: !frozen && !!inp.jump }, dt, c.speed * (p.spdT > 0 ? G.SPEED_BUFF : 1) * (p.auraT > 0 ? G.KING_AURA.SPEED : 1), room.map);
   clampBotRole(room, p);
   if (frozen || p.dead || p.protT > 0) return;
   if (inp.atk && p.atkCd <= 0) doAttack(room, p);
@@ -771,19 +825,28 @@ function applyInput(room, p, inp, frozen) {
 }
 
 function tickRoom(room) {
-  const dt = G.DT;
-  room.events = [];
+  // during the finale the whole game runs in slow motion
+  const dt = G.DT * (room.finale ? G.FINALE_SLOW : 1);
+  room.events = room.pendingEvents || [];
+  room.pendingEvents = [];
   if (room.phase === 'draft') {
     room.draftT -= dt;
-    if (room.draftT <= 0) finalizeDraft(room);
+    const hs = humans(room).filter(p => p.connected);
+    if (room.draftT <= 0 || (hs.length && hs.every(p => room.draftReady.has(p.id)))) finalizeDraft(room);
     return;
   }
   const inMatch = room.phase === 'countdown' || room.phase === 'playing' || room.phase === 'sudden';
   if (!inMatch) return;
   room.time += dt;
-  const frozen = room.phase === 'countdown';
+  const frozen = room.phase === 'countdown' || !!room.finale; // no control during the finale
+  if (room.finale) {
+    room.finale.t -= G.DT;
+    if (room.finale.t <= 0) { const w = room.finale.winner; room.finale = null; endMatch(room, w); return; }
+  }
 
-  if (frozen) {
+  if (room.finale) {
+    // clock stops; physics keeps going slowly
+  } else if (frozen) {
     room.timer -= dt;
     if (room.timer <= 0) {
       room.phase = 'playing';
@@ -816,19 +879,19 @@ function tickRoom(room) {
   const now = Date.now();
   for (const p of room.players.values()) {
     if (!p.inMatch) continue;
-    for (const k of ['atkCd', 'ablCd', 'protT', 'invulnT', 'invisT', 'shieldT', 'powT', 'spdT']) if (p[k] > 0) p[k] = Math.max(0, p[k] - dt);
-    if (p.dead && !frozen && !p.isKing) {
+    for (const k of ['atkCd', 'ablCd', 'protT', 'invulnT', 'invisT', 'shieldT', 'powT', 'spdT', 'auraT']) if (p[k] > 0) p[k] = Math.max(0, p[k] - dt);
+    if (p.dead && !frozen && !p.isKing && !room.finale) {
       p.respawnT -= dt;
       if (p.respawnT <= 0) { spawn(room, p, false); ev(room, { t: 'spawn', id: p.id }); }
     }
     if (p.isBot) {
-      applyInput(room, p, botThink(room, p), frozen);
+      applyInput(room, p, botThink(room, p), frozen, dt);
     } else {
       // speed-hack guard: at most 4 inputs per tick, drop a backlog
       if (p.inputs.length > 15) p.inputs.splice(0, p.inputs.length - 15);
       const batch = p.inputs.splice(0, 4);
-      for (const inp of batch) { applyInput(room, p, inp, frozen); p.lastSeq = inp.seq; }
-      if (!batch.length && now - p.lastInputAt > 250) applyInput(room, p, {}, frozen);
+      for (const inp of batch) { applyInput(room, p, inp, frozen, dt); p.lastSeq = inp.seq; }
+      if (!batch.length && now - p.lastInputAt > 250) applyInput(room, p, {}, frozen, dt);
     }
     if (p.lungeT > 0 && !p.dead) {
       p.lungeT -= dt;
@@ -849,7 +912,10 @@ function tickRoom(room) {
     if (p.dryDeaths < 3 && p.pity > 0) p.pity = Math.max(0, p.pity - dt / 4);
   }
 
+  if (room.mode === 'ktk' && !frozen) updateKingAura(room, dt);
+  if (room.finale) updateProjectiles(room, dt); // arrows and bombs finish their flight in slow motion
   if (!frozen) {
+    updateCrowd(room, dt);
     updateProjectiles(room, dt);
     updateMeteors(room, dt);
     updatePickups(room, dt);
@@ -857,6 +923,39 @@ function tickRoom(room) {
     checkEnd(room);
   }
   sendSnapshot(room);
+}
+
+// King's aura: always on. Heal allies close to him, speed up allies a bit further out.
+function updateKingAura(room, dt) {
+  const A = G.KING_AURA;
+  for (const k of room.players.values()) {
+    if (!k.isKing || !k.inMatch || k.dead) continue;
+    for (const p of room.players.values()) {
+      if (p === k || !p.inMatch || p.dead || p.team !== k.team) continue;
+      const d = Math.hypot(p.x - k.x, p.z - k.z);
+      if (d < A.SPEED_R) p.auraT = 0.25;
+      if (d < A.HEAL_R) p.hp = Math.min(p.maxHp, p.hp + A.HEAL * dt);
+    }
+  }
+}
+
+// The Crowd: knocked-out players vote; every CROWD_PERIOD s the top spot gets a bonus power-up
+function updateCrowd(room, dt) {
+  if (room.phase !== 'playing' && room.phase !== 'sudden') return;
+  room.crowdT -= dt;
+  if (room.crowdT > 0) return;
+  room.crowdT = G.CROWD_PERIOD;
+  if (!room.votes.size) return;
+  const tally = new Map();
+  for (const v of room.votes.values()) tally.set(v, (tally.get(v) || 0) + 1);
+  const top = Math.max(...tally.values());
+  const winners = [...tally.keys()].filter(k => tally.get(k) === top);
+  const idx = winners[(Math.random() * winners.length) | 0];
+  const spot = room.map.pickups[idx];
+  const k = randKind();
+  room.pickups.push({ id: nextId++, x: spot.x, z: spot.z + 1.6, k, active: true, crowd: true, respawnT: 0 });
+  ev(room, { t: 'crowd', k, spot: idx, votes: room.votes.size });
+  room.votes.clear();
 }
 
 function updateMeteors(room, dt) {
@@ -891,6 +990,7 @@ function initPickups(room) {
 }
 
 function updatePickups(room, dt) {
+  room.pickups = room.pickups.filter(pk => !pk.gone);
   for (const pk of room.pickups) {
     if (!pk.active) {
       pk.respawnT -= dt * (room.frenzy ? G.FRENZY_PICKUP_RATE : 1);
@@ -905,6 +1005,7 @@ function updatePickups(room, dt) {
       if (pk.k === 'speed') p.spdT = G.BUFF_TIME;
       ev(room, { t: 'pick', id: p.id, k: pk.k, x: pk.x, z: pk.z });
       pk.active = false; pk.respawnT = 15 + Math.random() * 8;
+      if (pk.crowd) pk.gone = true;
       break;
     }
   }
@@ -946,27 +1047,44 @@ function leaders(room) {
 }
 
 function checkEnd(room) {
+  if (room.finale) return;
   if (room.mode === 'ktk') {
-    if (room.kingDown) return endMatch(room, otherTeam(room.kingDown));
+    if (room.kingDown) return startFinale(room, otherTeam(room.kingDown));
     if (room.phase === 'playing' && room.timer <= 0) {
       // time's up: the King with more health left wins
       const r = kingOf(room, 'red'), b = kingOf(room, 'blue');
       const rf = r ? r.hp / r.maxHp : 0, bf = b ? b.hp / b.maxHp : 0;
-      return endMatch(room, Math.abs(rf - bf) < 0.005 ? 'draw' : rf > bf ? 'red' : 'blue');
+      return startFinale(room, Math.abs(rf - bf) < 0.005 ? 'draw' : rf > bf ? 'red' : 'blue');
     }
     return;
   }
   if (room.phase === 'playing' && room.timer <= 0) {
     const l = leaders(room);
-    if (l.length === 1) return endMatch(room, l[0]);
+    if (l.length === 1) return startFinale(room, l[0]);
     room.phase = 'sudden'; room.timer = G.SUDDEN_DEATH_TIME; room.suddenIds = l;
     ev(room, { t: 'sudden' });
     broadcastLobby(room);
   } else if (room.phase === 'sudden') {
     const l = leaders(room);
-    if (l.length === 1) return endMatch(room, l[0]);
-    if (room.timer <= 0) return endMatch(room, 'draw');
+    if (l.length === 1) return startFinale(room, l[0]);
+    if (room.timer <= 0) return startFinale(room, 'draw');
   }
+}
+
+// Slow-motion finale: announce the winner, let the moment play out, then show results
+function startFinale(room, winner) {
+  let focus = null;
+  if (room.mode === 'ktk') {
+    const fallen = room.kingDown && kingOf(room, room.kingDown);
+    focus = fallen ? fallen.id : (winner !== 'draw' && kingOf(room, winner) ? kingOf(room, winner).id : null);
+  } else if (room.mode === 'ffa') focus = winner !== 'draw' ? winner : null;
+  else if (winner !== 'draw') {
+    const best = [...room.players.values()].filter(p => p.inMatch && p.team === winner).sort((x, y) => y.score - x.score)[0];
+    focus = best ? best.id : null;
+  }
+  const reason = room.mode === 'ktk' ? (room.kingDown ? 'king' : 'time') : 'score';
+  room.finale = { winner, focus, reason, t: G.FINALE_TIME };
+  ev(room, { t: 'finale', w: winner, f: focus, r: reason });
 }
 
 const r2 = v => Math.round(v * 100) / 100;
@@ -974,10 +1092,12 @@ const r2 = v => Math.round(v * 100) / 100;
 function sendSnapshot(room) {
   const snap = {
     phase: room.phase, timer: r2(Math.max(0, room.timer)), fz: !!room.frenzy,
+    fin: room.finale ? { w: room.finale.winner, f: room.finale.focus, r: room.finale.reason } : null,
     zone: { i: room.zoneIdx, next: room.nextZoneIdx, t: r2(room.zoneT), contested: room.contested, holder: room.holder },
     ts: Object.fromEntries(Object.entries(room.teamScore).map(([k, v]) => [k, Math.floor(v)])),
     mt: room.meteors.map(m => ({ id: m.id, x: r2(m.x), z: r2(m.z), r: r2(m.r), mr: r2(m.maxR), f: r2(Math.max(0, m.t - G.METEOR_GROW)) })),
-    pk: room.pickups.filter(pk => pk.active).map(pk => ({ id: pk.id, k: pk.k, x: pk.x, z: pk.z })),
+    pk: room.pickups.filter(pk => pk.active).map(pk => ({ id: pk.id, k: pk.k, x: pk.x, z: pk.z, c: pk.crowd ? 1 : 0 })),
+    cv: { t: r2(Math.max(0, room.crowdT || 0)), n: room.map.pickups.map((_, i) => [...room.votes.values()].filter(v => v === i).length) },
     p: [], pr: room.projectiles.map(pr => ({ id: pr.id, k: pr.kind, x: r2(pr.x), y: r2(pr.y), z: r2(pr.z) })),
     ev: room.events,
   };
@@ -990,7 +1110,7 @@ function sendSnapshot(room) {
     snap.p.push({
       id: p.id, c: p.cls, x: r2(p.x), y: r2(p.y), z: r2(p.z), yaw: r2(p.yaw), hp: Math.ceil(p.hp), mhp: p.maxHp,
       dead: p.dead, rt: r2(p.respawnT), prot: p.protT > 0, inv: p.invisT > 0, sh: p.shieldT > 0, slow: p.slowT > 0,
-      sc: Math.floor(p.score), ko: p.kos, de: p.deaths, dm: Math.round(p.dmgDone), kd: Math.round(p.kingDmg), nc: p.nextCls,
+      sc: Math.floor(p.score), ko: p.kos, de: p.deaths, au: p.auraT > 0, dm: Math.round(p.dmgDone), kd: Math.round(p.kingDmg), nc: p.nextCls,
       pw: p.powT > 0, sp: p.spdT > 0, pwT: r2(p.powT), spT: r2(p.spdT),
       // movement + cooldown state, used by that player's own client for prediction and HUD
       vy: r2(p.vy), kx: r2(p.kx), kz: r2(p.kz), dT: r2(p.dashT), dX: r2(p.dashVX), dZ: r2(p.dashVZ), sT: r2(p.slowT),
@@ -1035,7 +1155,7 @@ io.on('connection', socket => {
     const r = {
       code, hostId: null, players: new Map(), mode: 'ffa', botLevel: 'normal', phase: 'lobby', results: null,
       projectiles: [], events: [], teamScore: Object.fromEntries(G.TEAMS.map(t => [t, 0])), meteors: [], pickups: [], zoneIdx: 0, nextZoneIdx: null, zoneT: G.ZONE_PERIOD,
-      map: G.MAPS.arena, draft: null, draftT: 0,
+      map: G.MAPS.arena, draft: null, draftT: 0, votes: new Map(), crowdT: 0,
       timer: 0, time: 0, emptySince: null,
     };
     rooms.set(code, r);
@@ -1070,8 +1190,8 @@ io.on('connection', socket => {
       assignColor(r, p);
       if (r.phase === 'draft') assignFreeSlot(r.draft[p.team], p);
       if (r.phase === 'countdown' || r.phase === 'playing' || r.phase === 'sudden') {
-        if (r.mode === 'ktk') { p.role = 'M'; p.lane = 0; }
-        initSim(r, p);
+        if (r.mode === 'ktk') takeOverBot(r, p);
+        else initSim(r, p);
       }
     }
     if (!r.hostId) r.hostId = p.id;
@@ -1159,6 +1279,12 @@ io.on('connection', socket => {
     broadcastLobby(room);
   });
 
+  socket.on('draftReady', val => {
+    if (!me || room.phase !== 'draft') return;
+    if (val) room.draftReady.add(me.id); else room.draftReady.delete(me.id);
+    broadcastLobby(room);
+  });
+
   socket.on('draftTake', idx => {
     if (!me || room.phase !== 'draft') return;
     const d = room.draft[me.team], sl = d.slots[idx];
@@ -1175,6 +1301,11 @@ io.on('connection', socket => {
     sl.cls = cls;
     if (sl.humanId === me.id) me.cls = cls;
     broadcastLobby(room);
+  });
+
+  socket.on('crowdVote', idx => {
+    if (!me || !me.inMatch || !me.dead || !room.map.pickups[idx]) return;
+    room.votes.set(me.id, idx);
   });
 
   socket.on('respawnClass', cls => {

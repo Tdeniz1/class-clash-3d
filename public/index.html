@@ -116,7 +116,11 @@
           <div class="eyebrow" id="draftTeam">Your team</div>
           <h2>Build your team</h2>
         </div>
-        <div class="draft-timer" aria-live="polite"><span id="draftTimer">10</span><small>sec</small></div>
+        <div class="draft-ready">
+          <button id="draftReadyBtn" class="btn btn-small">Ready</button>
+          <span id="draftReadyCount" class="muted small"></span>
+        </div>
+        <div class="draft-timer" aria-live="polite"><span id="draftTimer">30</span><small>sec</small></div>
       </header>
       <p class="draft-hint">Pick a line-up · tap a spot → <em>Play here</em> · tap a bot's spot → pick its class</p>
       <ol class="draft-steps">
@@ -145,6 +149,7 @@
       <div class="eyebrow">Match over</div>
       <h2 id="winnerText" class="winner"></h2>
       <div id="teamResult" class="team-result"></div>
+      <div id="mvpCards" class="mvp-cards"></div>
       <table class="score-table">
         <thead><tr><th>#</th><th>Player</th><th>Class</th><th>Points</th><th>KOs</th><th>Dmg</th></tr></thead>
         <tbody id="resultsBody"></tbody>
@@ -169,6 +174,7 @@
     <ol id="scoreList" class="score-list"></ol>
     <ul id="feed" class="feed"></ul>
     <div id="centerMsg" class="center-msg"></div>
+    <div id="finaleBanner" class="finale-banner hidden"><div id="finaleTitle"></div><div id="finaleSub"></div></div>
     <div id="subMsg" class="sub-msg"></div>
     <div id="crosshair" class="crosshair"></div>
     <div id="zoneArrow" class="zone-arrow">▲</div>
@@ -191,6 +197,10 @@
       <div class="death-timer">Back in <b id="deathTime">8</b>s<span id="deathWhere"></span></div>
       <div class="eyebrow">Switch class for your next life</div>
       <div id="deathClasses" class="death-classes"></div>
+      <div class="crowd">
+        <div class="eyebrow">🗳 The crowd decides: next bonus drop in <b id="crowdT">12</b>s</div>
+        <div id="crowdSpots" class="crowd-spots" role="group" aria-label="Vote where the next power-up drops"></div>
+      </div>
       <div class="eyebrow" id="deathStatsTitle">Your team</div>
       <div class="death-table-wrap">
         <table class="death-stats">

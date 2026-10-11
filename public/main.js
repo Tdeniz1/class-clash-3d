@@ -356,6 +356,12 @@ function makeCharacter(cls, ringColor) {
       }
       extras.push(box(0.85 * bw, 1.1 * s, 0.08, lam(ringColor), 0, 0.95 * s, 0.27 * s));
       extras.push(box(0.5 * s, 0.14 * s, 0.5 * s, lam(0xf1e3c6), 0, 1.38 * s, 0));
+      // aura rings: inner = healing range, outer = speed range
+      for (const [r, op] of [[G.KING_AURA.HEAL_R, 0.55], [G.KING_AURA.SPEED_R, 0.3]]) {
+        const ar = new THREE.Mesh(new THREE.RingGeometry(r - 0.15, r, 64), new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: op, side: THREE.DoubleSide, depthWrite: false }));
+        ar.rotation.x = -Math.PI / 2; ar.position.y = 0.07;
+        g.add(ar);
+      }
       break;
     }
     case 'tank':
@@ -748,6 +754,10 @@ function renderResults() {
   $('#resultsBody').innerHTML = R.players.map((p, i) => `<tr class="${p.id === myId ? 'me' : ''}">
     <td>${i + 1}</td><td>${esc(p.name)}${R.mode !== 'ffa' ? ` <span class="badge ${p.team}">${G.TEAM_NAMES[p.team]}</span>` : ''}</td>
     <td>${G.CLASSES[p.cls].name}</td><td>${p.score}</td><td>${p.kos}</td><td>${p.dmg || 0}</td></tr>`).join('');
+  $('#mvpCards').innerHTML = (R.awards || []).map(a => `<div class="mvp ${a.id === myId ? 'me' : ''}">
+    <div class="ic">${a.icon}</div><div class="tt">${a.title}</div>
+    <div class="nm" style="color:${hex(R.mode === 'ffa' ? 0xf3e2bf : G.TEAM_COLORS[a.team])}">${esc(a.name)}${a.id === myId ? ' (you)' : ''}</div>
+    <div class="st">${G.CLASSES[a.cls].name} · ${a.value} ${a.unit}</div></div>`).join('');
   const host = lobby.hostId === myId;
   $('#againBtn').classList.toggle('hidden', !host);
   $('#againHint').textContent = host ? '' : 'Waiting for the host to start another round…';
@@ -795,6 +805,9 @@ function resetMatchState() {
   projMeshes.clear();
   updateMeteorObjs([]); updatePickupObjs([]);
   leaderId = null;
+  $('#finaleBanner').classList.add('hidden');
+  $('#hud').classList.remove('finale');
+  document.body.classList.remove('finale');
   $('#feed').innerHTML = '';
 }
 
@@ -828,6 +841,11 @@ function renderDraft() {
   if (!d || !me) return;
   if (selSlot == null || selSlot >= d.slots.length) selSlot = Math.max(0, d.slots.findIndex(sl => sl.humanId === myId));
   $('#draftTeam').textContent = `Kill the King · ${G.TEAM_NAMES[me.team]} team`;
+  const rdy = lobby.draftReady || [], humansIn = lobby.players.filter(p => !p.isBot && p.connected);
+  const iAmReady = rdy.includes(myId);
+  $('#draftReadyBtn').textContent = iAmReady ? '✓ Ready' : 'Ready';
+  $('#draftReadyBtn').classList.toggle('on', iAmReady);
+  $('#draftReadyCount').textContent = `${rdy.length}/${humansIn.length} ready · starts when all are`;
   $('#draftTeam').style.color = hex(G.TEAM_COLORS[me.team]);
   $('#formSeg').innerHTML = G.FORMATIONS.map(f => `<button data-f="${f.join('-')}" class="${f.join() === d.formation.join() ? 'on' : ''}" aria-pressed="${f.join() === d.formation.join()}">${f.join('-')}</button>`).join('');
   const lane = role => d.slots.map((sl, i) => ({ sl, i })).filter(x => x.sl.role === role).map(({ sl, i }) => {
@@ -850,8 +868,11 @@ function renderDraft() {
 
 $('#formSeg').addEventListener('click', e => { const b = e.target.closest('[data-f]'); if (b) socket.emit('draftFormation', b.dataset.f.split('-').map(Number)); });
 $('#pitch').addEventListener('click', e => { const b = e.target.closest('[data-idx]'); if (b) { selSlot = +b.dataset.idx; renderDraft(); } });
+$('#draftReadyBtn').onclick = () => socket.emit('draftReady', !(lobby.draftReady || []).includes(myId));
 $('#takeSlotBtn').onclick = () => { if (selSlot != null) socket.emit('draftTake', selSlot); };
 $('#draftClasses').addEventListener('click', e => { const b = e.target.closest('[data-cls]'); if (b && !b.disabled && selSlot != null) socket.emit('draftClass', { idx: selSlot, cls: b.dataset.cls }); });
+let myVote = null;
+$('#crowdSpots').addEventListener('click', e => { const b = e.target.closest('[data-spot]'); if (b) { myVote = +b.dataset.spot; socket.emit('crowdVote', myVote); } });
 $('#deathClasses').addEventListener('click', e => { const b = e.target.closest('[data-cls]'); if (b) socket.emit('respawnClass', b.dataset.cls); });
 
 // ---------- settings ----------
@@ -948,7 +969,7 @@ document.addEventListener('pointerlockchange', () => {
 
 // ---------- prediction ----------
 function myClass() { const me = mySnapState(), lp = lobbyPlayer(myId); return G.CLASSES[(me && me.c) || (lp ? lp.cls : 'gladiator')]; }
-function mySpeed() { const me = mySnapState(); return myClass().speed * (me && me.sp ? G.SPEED_BUFF : 1); }
+function mySpeed() { const me = mySnapState(); return myClass().speed * (me && me.sp ? G.SPEED_BUFF : 1) * (me && me.au ? G.KING_AURA.SPEED : 1); }
 function mySnapState() { return lastSnap && lastSnap.p.find(p => p.id === myId); }
 
 function buildInput() {
@@ -978,7 +999,7 @@ function buildInput() {
 
 function fixedStep() {
   const me = mySnapState();
-  if (!me) return;
+  if (!me || lastSnap.fin) return;
   const inp = buildInput();
   const frozen = lastSnap.phase === 'countdown';
   if (frozen) { inp.mx = 0; inp.mz = 0; inp.jump = false; }
@@ -993,7 +1014,7 @@ function fixedStep() {
 function reconcile(ps) {
   const before = pred ? { x: pred.x, y: pred.y, z: pred.z } : null;
   pred = { x: ps.x, y: ps.y, z: ps.z, vy: ps.vy, kx: ps.kx, kz: ps.kz, dashT: ps.dT, dashVX: ps.dX, dashVZ: ps.dZ, slowT: ps.sT };
-  pending = pending.filter(i => i.seq > ps.seq);
+  pending = lastSnap && lastSnap.fin ? [] : pending.filter(i => i.seq > ps.seq);
   const spd = mySpeed();
   if (!ps.dead) for (const i of pending) if (!i.skip) G.stepMove(pred, i, G.DT, spd, curMap);
   if (before) {
@@ -1105,6 +1126,37 @@ function handleEvent(e) {
     case 'sudden':
       flashCenter('SUDDEN DEATH', 1600);
       break;
+    case 'joined': {
+      const l = lobbyPlayer(e.id);
+      feed(`${nameTag(e.id)} joined and took over ${esc(e.took)}`);
+      if (e.id === myId && l) flashCenter(`You're ${G.ROLE_NAMES[l.role] || 'in'}!`, 1400);
+      break;
+    }
+    case 'crowd': {
+      const spot = curMap.pickups[e.spot];
+      feed(`🗳 The crowd dropped ${{ heal: '💚 health', power: '⚔ 2× damage', speed: '⚡ speed' }[e.k]} at ${spot ? spot.name : 'the arena'}`);
+      if (spot) ringFx(spot.x, gh(spot.x, spot.z), spot.z + 1.6, 3, 0xc77dff, 0.8);
+      myVote = null;
+      break;
+    }
+    case 'finale': {
+      const ktk = lobby.mode === 'ktk';
+      const loser = e.w === 'red' ? 'blue' : 'red';
+      const wl = lobbyPlayer(e.w);
+      const title = e.w === 'draw' ? "IT'S A DRAW!" : lobby.mode === 'ffa' ? `${(wl ? wl.name : '?').toUpperCase()} WINS!` : `${G.TEAM_NAMES[e.w].toUpperCase()} TEAM WINS!`;
+      const sub = ktk ? (e.r === 'king' ? `The ${G.TEAM_NAMES[loser]} King has fallen!` : `Time! The ${G.TEAM_NAMES[e.w] || ''} King had more health left.`)
+        : lobby.mode === 'ffa' ? 'Most points when the dust settled.' : 'Most points when the dust settled.';
+      $('#finaleTitle').textContent = title;
+      $('#finaleTitle').style.color = e.w === 'draw' ? '#f3e2bf' : hex(lobby.mode === 'ffa' ? (wl ? ringColorFor(wl) : 0xf3e2bf) : G.TEAM_COLORS[e.w]);
+      $('#finaleSub').textContent = sub;
+      $('#finaleBanner').classList.remove('hidden');
+      $('#hud').classList.add('finale');
+      document.body.classList.add('finale');
+      finaleOrbit = Math.atan2(camera.position.x, camera.position.z);
+      if (document.pointerLockElement) document.exitPointerLock();
+      sfx.ko(); setTimeout(() => sfx.zone(), 350); setTimeout(() => tone(1046, 0.6, 'triangle', 0.09), 700);
+      break;
+    }
     case 'frenzy':
       flashCenter('FINAL FRENZY!', 2200);
       feed('🔥 Last 30 s: double damage, fast power-ups, 3 s respawns');
@@ -1137,13 +1189,18 @@ function handleEvent(e) {
 // ---------- death screen: countdown, class swap, team stats ----------
 let deathStatsAt = 0;
 function updateDeathScreen(s, me, lp) {
-  const show = me.dead && !lp.isKing && s.phase !== 'countdown';
+  const show = me.dead && !lp.isKing && s.phase !== 'countdown' && !s.fin;
   $('#deathScreen').classList.toggle('hidden', !show);
   if (!show) return;
   const ktk = lobby.mode === 'ktk';
   $('#deathTime').textContent = Math.max(0, Math.ceil(me.rt));
   $('#deathWhere').textContent = ktk ? ' · at your 25% line' : '';
   const nextCls = me.nc || me.c;
+  if (s.cv) {
+    $('#crowdT').textContent = Math.ceil(s.cv.t);
+    const html = curMap.pickups.map((sp, i) => `<button data-spot="${i}" class="${myVote === i ? 'on' : ''}">${esc(sp.name)}${s.cv.n[i] ? `<b>${s.cv.n[i]}</b>` : ''}</button>`).join('');
+    if ($('#crowdSpots').dataset.html !== html) { $('#crowdSpots').innerHTML = html; $('#crowdSpots').dataset.html = html; }
+  }
   $('#deathClasses').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.cls === nextCls));
   const now = performance.now();
   if (now - deathStatsAt < 500) return; // refresh the table twice a second
@@ -1246,6 +1303,10 @@ function updatePickupObjs(list) {
     if (!o) {
       o = makePickup(pk.k);
       o.userData.k = pk.k;
+      if (pk.c) {
+        const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.7, 14, 16, 1, true), new THREE.MeshBasicMaterial({ color: 0xc77dff, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false }));
+        beam.position.y = 7; o.add(beam);
+      }
       o.position.set(pk.x, gh(pk.x, pk.z), pk.z);
       scene.add(o); pickupObjs.set(pk.id, o);
     }
@@ -1374,8 +1435,9 @@ resize();
 function frame() {
   requestAnimationFrame(frame);
   const now = performance.now();
-  const dt = Math.min(0.1, (now - lastFrame) / 1000);
+  const realDt = Math.min(0.1, (now - lastFrame) / 1000);
   lastFrame = now;
+  const dt = lastSnap && lastSnap.fin ? realDt * G.FINALE_SLOW : realDt; // effects and animation slow down in the finale
 
   if (lastSnap && inMatchNow()) {
     aimAssist(dt);
@@ -1416,6 +1478,10 @@ function frame() {
     const lp = lobbyPlayer(id);
     const ally = id === myId || (isTeamMode() && lp && lp.team === myTeam);
     let visible = !st.dead, opacity = 1;
+    // the fallen King stays on screen, lying down, while the finale camera circles him
+    const fallen = st.dead && lastSnap && lastSnap.fin && lastSnap.fin.f === id;
+    if (fallen) visible = true;
+    g.rotation.z = fallen ? Math.min(Math.PI / 2, (g.rotation.z || 0) + dt * 2.5) : 0;
     // camera squeezed against a wall: fade your own character so it doesn't block the view
     if (id === myId && camDist < 3) opacity = 0.35;
     if (st.inv) { if (ally) opacity = 0.3; else visible = false; }
@@ -1465,12 +1531,23 @@ function frame() {
     $('#draftTimer').textContent = left;
     $('#draftTimer').parentElement.classList.toggle('hurry', left <= 3);
   }
-  updateCamera(dt);
+  updateCamera(realDt);
   updateHud(now);
   renderer.render(scene, camera);
 }
 
+let finaleOrbit = 0;
 function updateCamera(dt) {
+  const fin = lastSnap && lastSnap.fin;
+  const fc = fin && fin.f && chars.get(fin.f);
+  if (fc && inMatchNow()) {
+    const g = fc.model.group.position;
+    finaleOrbit += dt * 0.45;
+    const want = new THREE.Vector3(g.x + Math.sin(finaleOrbit) * 7.5, g.y + 3.6, g.z + Math.cos(finaleOrbit) * 7.5);
+    camera.position.lerp(want, Math.min(1, dt * 3));
+    camera.lookAt(g.x, g.y + 1.2, g.z);
+    return;
+  }
   const ch = chars.get(myId);
   if (!ch || !pred || !inMatchNow() && !(lobby && lobby.phase === 'ended')) {
     // idle orbit behind menus
@@ -1568,7 +1645,7 @@ function updateHud(now) {
   $('#hpFill').style.width = (me.hp / me.mhp * 100) + '%';
   $('#hpFill').style.background = me.hp / me.mhp < 0.3 ? 'linear-gradient(90deg,#e63946,#ff6b5b)' : '';
   $('#hpText').textContent = `${me.hp} / ${me.mhp}`;
-  $('#buffs').innerHTML = (me.pw ? `<span class="buff pw">⚔ 2× damage ${Math.ceil(me.pwT)}s</span>` : '') + (me.sp ? `<span class="buff sp">⚡ speed ${Math.ceil(me.spT)}s</span>` : '');
+  $('#buffs').innerHTML = (me.au ? '<span class="buff au">👑 King\'s aura</span>' : '') + (me.pw ? `<span class="buff pw">⚔ 2× damage ${Math.ceil(me.pwT)}s</span>` : '') + (me.sp ? `<span class="buff sp">⚡ speed ${Math.ceil(me.spT)}s</span>` : '');
   $('#cdAtk').style.setProperty('--p', Math.min(1, me.aCd / c.attack.cd));
   const ablP = Math.min(1, me.bCd / c.ability.cd);
   $('#cdAbl').style.setProperty('--p', ablP);
