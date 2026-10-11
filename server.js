@@ -123,7 +123,7 @@ function initSim(room, p) {
 }
 
 function spawn(room, p, initial) {
-  if (p.nextCls && G.CLASS_ORDER.includes(p.nextCls)) { p.cls = p.nextCls; p.maxHp = G.CLASSES[p.cls].hp; }
+  if (p.nextCls && G.CLASS_ORDER.includes(p.nextCls)) { p.cls = p.nextCls; p.maxHp = Math.round(G.CLASSES[p.cls].hp * (room.overtime ? G.OVERTIME.HP : 1)); }
   p.nextCls = null;
   let pos, yaw;
   if (room.mode === 'ktk') {
@@ -172,7 +172,8 @@ function beginCountdown(room) {
   room.meteors = []; room.meteorT = 0; room.meteorAnnounced = false;
   room.pickups = initPickups(room);
   room.projectiles = []; room.events = []; room.results = null; room.suddenIds = null;
-  room.contested = false; room.holder = null; room.kingDown = null; room.frenzy = false; room.finale = null;
+  room.contested = false; room.holder = null; room.kingDown = null; room.frenzy = false; room.finale = null; room.overtime = false;
+  room.skill = null;
   room.votes = new Map(); room.crowdT = G.CROWD_PERIOD;
   room.orders = { red: null, blue: null };
   for (const p of [...room.players.values()]) {
@@ -345,8 +346,11 @@ function damage(room, src, e, amt, kbx = 0, kbz = 0) {
   if (e.shieldT > 0) amt *= 0.5;
   if (e.isKing && kingGuarded(room, e)) amt *= G.KING_GUARD.DMG; // guarded King shrugs off half
   if (room.frenzy) amt *= 2; // final 30 s of Kill the King
+  if (room.overtime) amt *= G.OVERTIME.DMG;
   amt = Math.max(1, Math.round(amt));
   e.hp -= amt;
+  // Kings can't fall before the Final Frenzy (or overtime)
+  if (e.isKing && room.mode === 'ktk' && !room.frenzy && !room.overtime) e.hp = Math.max(e.hp, Math.ceil(e.maxHp * G.KING_FLOOR));
   e.lastHurt = room.time;
   const res = e.cls === 'tank' ? 0.7 : 1;
   e.kx += kbx * res; e.kz += kbz * res;
@@ -371,7 +375,7 @@ function kingGuarded(room, k) {
 
 function knockOut(room, src, e, cause) {
   e.hp = 0; e.dead = true; e.deaths++;
-  e.respawnT = room.mode !== 'ktk' ? G.RESPAWN_TIME : room.frenzy ? G.FRENZY_RESPAWN : G.KTK_RESPAWN;
+  e.respawnT = room.overtime ? G.FRENZY_RESPAWN : room.mode !== 'ktk' ? G.RESPAWN_TIME : room.frenzy ? G.FRENZY_RESPAWN : G.KTK_RESPAWN;
   e.invisT = 0; e.dashT = 0; e.kx = 0; e.kz = 0; e.lungeT = 0; e.powT = 0; e.spdT = 0;
   // Hidden comeback boost: 3+ deaths in a row with no kill ramps it up, one level per death.
   e.dryDeaths++;
@@ -471,16 +475,21 @@ function spawnProjectile(room, p, kind, a) {
 
 function doAttack(room, p) {
   const c = G.CLASSES[p.cls], a = c.attack;
-  p.atkCd = a.cd + (p.isBot ? botLevel(room).extraCd * (0.5 + Math.random()) : 0);
+  p.atkCd = a.cd + (p.isBot ? botLevelFor(room, p.team).extraCd * (0.5 + Math.random()) : 0);
   p.invisT = 0;
   ev(room, { t: 'atk', id: p.id });
   if (a.type !== 'melee') return spawnProjectile(room, p, a.type, a);
 
-  const f = G.facing(p.yaw), cosA = Math.cos(a.arc / 2 * Math.PI / 180);
+  // humans get a forgiving swing: wider cone, more reach, and point-blank hits anything in front
+  const A = G.MELEE_ASSIST, human = !p.isBot;
+  const arc = human ? Math.max(a.arc + A.ARC_BONUS, A.MIN_ARC) : a.arc;
+  const reach = a.range + (human ? A.RANGE_BONUS : 0);
+  const f = G.facing(p.yaw), cosA = Math.cos(arc / 2 * Math.PI / 180);
   for (const e of enemiesOf(room, p)) {
     const dx = e.x - p.x, dz = e.z - p.z, d = Math.hypot(dx, dz);
-    if (d > a.range + G.PLAYER_RADIUS || Math.abs(e.y - p.y) > 1.8) continue;
-    if (d > 0.15 && (dx * f.x + dz * f.z) / d < cosA) continue;
+    if (d > reach + G.PLAYER_RADIUS || Math.abs(e.y - p.y) > (human ? 2.3 : 1.8)) continue;
+    const dot = d > 0.15 ? (dx * f.x + dz * f.z) / d : 1;
+    if (human && d < A.CLOSE ? dot < -0.2 : dot < cosA) continue;
     let dmg = a.dmg;
     if (p.cls === 'rogue' && d > 0.01) {
       const ef = G.facing(e.yaw);
@@ -494,7 +503,7 @@ function doAttack(room, p) {
 
 function doAbility(room, p) {
   const c = G.CLASSES[p.cls], id = c.ability.id;
-  p.ablCd = c.ability.cd + (p.isBot ? botLevel(room).extraCd * 3 : 0);
+  p.ablCd = c.ability.cd + (p.isBot ? botLevelFor(room, p.team).extraCd * 3 : 0);
   const f = G.facing(p.yaw);
   ev(room, { t: 'abl', id: p.id, a: id, x: p.x, y: p.y, z: p.z });
   switch (id) {
@@ -591,7 +600,7 @@ function updateProjectiles(room, dt) {
       pr.x += pr.vx * dt / steps; pr.y += pr.vy * dt / steps; pr.z += pr.vz * dt / steps;
       if (owner) {
         for (const e of enemiesOf(room, owner)) {
-          if (Math.hypot(e.x - pr.x, e.y + 0.9 - pr.y, e.z - pr.z) < 0.85) {
+          if (Math.hypot(e.x - pr.x, e.y + 0.9 - pr.y, e.z - pr.z) < (owner.isBot ? G.PROJECTILE_HIT_R.bot : G.PROJECTILE_HIT_R.human)) {
             hitProjectile(room, pr, owner, e, pr.x, pr.y, pr.z); done = true; break;
           }
         }
@@ -624,9 +633,36 @@ const BOT_LEVELS = {
   hard:   { aim: 0.12, react: 0.3,  extraCd: 0.12, abl: 0.05,  speed: 0.97, whiff: 0.12, miss: 0.2,  lead: 0.75 },
 };
 const botLevel = room => BOT_LEVELS[room.botLevel] || BOT_LEVELS.normal;
+const BASE_SKILL = { easy: 0, normal: 0.5, hard: 1 };
+// Bot settings for a team at its current skill (blend of the easy / normal / hard tables)
+function botLevelFor(room, team) {
+  const sk = room.skill && room.skill[team] != null ? room.skill[team] : BASE_SKILL[room.botLevel] ?? 0.5;
+  const [a, b, t] = sk <= 0.5 ? [BOT_LEVELS.easy, BOT_LEVELS.normal, sk / 0.5] : [BOT_LEVELS.normal, BOT_LEVELS.hard, (sk - 0.5) / 0.5];
+  const out = {};
+  for (const k of Object.keys(a)) out[k] = a[k] + (b[k] - a[k]) * t;
+  return out;
+}
+// Comeback bots: the team that's behind gets sharper bots, the team that's ahead gets weaker ones
+function updateSkill(room, dt) {
+  if (room.mode !== 'ktk' && room.mode !== 'teams') return;
+  const base = BASE_SKILL[room.botLevel] ?? 0.5;
+  room.skill = room.skill || { red: base, blue: base };
+  let lead = 0; // red's lead, -1..1
+  if (room.mode === 'ktk') {
+    const r = kingOf(room, 'red'), b = kingOf(room, 'blue');
+    if (r && b) lead = r.hp / r.maxHp - b.hp / b.maxHp;
+  } else {
+    const r = room.teamScore.red || 0, b = room.teamScore.blue || 0;
+    lead = (r - b) / Math.max(20, r + b);
+  }
+  for (const [t, sign] of [['red', 1], ['blue', -1]]) {
+    const target = Math.max(0, Math.min(1, base - sign * lead * G.RUBBER_BAND));
+    room.skill[t] += (target - room.skill[t]) * Math.min(1, dt * 0.5);
+  }
+}
 
 function botThink(room, p) {
-  const b = p.bot, c = G.CLASSES[p.cls], dt = G.DT, L = botLevel(room);
+  const b = p.bot, c = G.CLASSES[p.cls], dt = G.DT, L = botLevelFor(room, p.team);
   const inp = { mx: 0, mz: 0, jump: false, atk: false, abl: false, yaw: p.yaw, pitch: -0.1 };
   if (p.dead || room.phase === 'countdown') return inp;
 
@@ -858,7 +894,7 @@ function applyInput(room, p, inp, frozen, dt = G.DT) {
   if (Number.isFinite(inp.pitch)) p.pitch = Math.max(-1.2, Math.min(1.2, inp.pitch));
   if (Number.isFinite(inp.ax) && Number.isFinite(inp.ay) && Number.isFinite(inp.az)) p.aim = { x: inp.ax, y: inp.ay, z: inp.az };
   p.moveX = mx; p.moveZ = mz;
-  if (!p.dead) G.stepMove(p, { mx, mz, jump: !frozen && !!inp.jump }, dt, c.speed * (p.spdT > 0 ? G.SPEED_BUFF : 1) * (p.auraT > 0 ? G.KING_AURA.SPEED : 1), room.map);
+  if (!p.dead) G.stepMove(p, { mx, mz, jump: !frozen && !!inp.jump }, dt, c.speed * (p.spdT > 0 ? G.SPEED_BUFF : 1) * (p.auraT > 0 ? G.KING_AURA.SPEED : 1) * (room.overtime ? G.OVERTIME.SPEED : 1), room.map);
   clampBotRole(room, p);
   if (frozen || p.dead || p.protT > 0) return;
   if (inp.atk && p.atkCd <= 0) doAttack(room, p);
@@ -897,7 +933,7 @@ function tickRoom(room) {
     }
   } else {
     room.timer -= dt;
-    if (room.mode === 'ktk' && room.phase === 'playing' && room.timer <= G.FRENZY_TIME && !room.frenzy) {
+    if (room.mode === 'ktk' && room.phase === 'playing' && room.timer <= G.FRENZY_TIME && !room.frenzy && !room.overtime) {
       room.frenzy = true;
       ev(room, { t: 'frenzy' });
       // anyone already waiting gets the short respawn too
@@ -954,6 +990,7 @@ function tickRoom(room) {
   }
 
   if (room.mode === 'ktk' && !frozen) updateKingAura(room, dt);
+  if (!frozen) updateSkill(room, dt);
   if (room.finale) updateProjectiles(room, dt); // arrows and bombs finish their flight in slow motion
   if (!frozen) {
     updateCrowd(room, dt);
@@ -1091,10 +1128,11 @@ function checkEnd(room) {
   if (room.finale) return;
   if (room.mode === 'ktk') {
     if (room.kingDown) return startFinale(room, otherTeam(room.kingDown));
-    if (room.phase === 'playing' && room.timer <= 0) {
-      // time's up: the King with more health left wins
+    if ((room.phase === 'playing' || room.phase === 'sudden') && room.timer <= 0) {
+      // time's up: the King with more health left wins; too close to call = overtime (once)
       const r = kingOf(room, 'red'), b = kingOf(room, 'blue');
       const rf = r ? r.hp / r.maxHp : 0, bf = b ? b.hp / b.maxHp : 0;
+      if (room.phase === 'playing' && Math.abs(rf - bf) < G.TIE_MARGIN) return startOvertime(room, G.OVERTIME_TIME);
       return startFinale(room, Math.abs(rf - bf) < 0.005 ? 'draw' : rf > bf ? 'red' : 'blue');
     }
     return;
@@ -1102,14 +1140,26 @@ function checkEnd(room) {
   if (room.phase === 'playing' && room.timer <= 0) {
     const l = leaders(room);
     if (l.length === 1) return startFinale(room, l[0]);
-    room.phase = 'sudden'; room.timer = G.SUDDEN_DEATH_TIME; room.suddenIds = l;
-    ev(room, { t: 'sudden' });
-    broadcastLobby(room);
+    room.suddenIds = l;
+    startOvertime(room, G.SUDDEN_DEATH_TIME);
   } else if (room.phase === 'sudden') {
     const l = leaders(room);
     if (l.length === 1) return startFinale(room, l[0]);
     if (room.timer <= 0) return startFinale(room, 'draw');
   }
+}
+
+// Overtime: health halved, damage and speed doubled, Kings lose their protection
+function startOvertime(room, seconds) {
+  room.phase = 'sudden'; room.overtime = true; room.frenzy = false; room.timer = seconds;
+  for (const p of room.players.values()) {
+    if (!p.inMatch) continue;
+    p.maxHp = Math.round(p.maxHp * G.OVERTIME.HP);
+    p.hp = Math.min(p.maxHp, Math.ceil(p.hp * G.OVERTIME.HP));
+    if (p.dead && !p.isKing) p.respawnT = Math.min(p.respawnT, G.FRENZY_RESPAWN);
+  }
+  ev(room, { t: 'overtime' });
+  broadcastLobby(room);
 }
 
 // Slow-motion finale: announce the winner, let the moment play out, then show results
@@ -1132,7 +1182,7 @@ const r2 = v => Math.round(v * 100) / 100;
 
 function sendSnapshot(room) {
   const snap = {
-    phase: room.phase, timer: r2(Math.max(0, room.timer)), fz: !!room.frenzy,
+    phase: room.phase, timer: r2(Math.max(0, room.timer)), fz: !!room.frenzy, ot: !!room.overtime,
     fin: room.finale ? { w: room.finale.winner, f: room.finale.focus, r: room.finale.reason } : null,
     zone: { i: room.zoneIdx, next: room.nextZoneIdx, t: r2(room.zoneT), contested: room.contested, holder: room.holder },
     ts: Object.fromEntries(Object.entries(room.teamScore).map(([k, v]) => [k, Math.floor(v)])),
@@ -1149,7 +1199,7 @@ function sendSnapshot(room) {
       snap.ord[t] = o && o.until > room.time ? { c: o.cmd, by: o.by, t: r2(o.until - room.time), tg: o.targetId } : null;
     }
     snap.kg = {};
-    for (const t of ['red', 'blue']) { const k = kingOf(room, t); if (k) snap.kg[t] = { id: k.id, hp: Math.ceil(Math.max(0, k.hp)), mhp: k.maxHp, gd: !k.dead && kingGuarded(room, k) }; }
+    for (const t of ['red', 'blue']) { const k = kingOf(room, t); if (k) snap.kg[t] = { id: k.id, hp: Math.ceil(Math.max(0, k.hp)), mhp: k.maxHp, gd: !k.dead && kingGuarded(room, k), pf: !room.frenzy && !room.overtime && k.hp <= Math.ceil(k.maxHp * G.KING_FLOOR) }; }
   }
   for (const p of room.players.values()) {
     if (!p.inMatch) continue;

@@ -177,6 +177,19 @@ export const FRENZY_PICKUP_RATE = 5;
 export const KING_AURA = { HEAL_R: 5, HEAL: 4, SPEED_R: 10, SPEED: 1.2 };
 // King's Guard: with GUARD_MIN+ teammates within GUARD_R m, the King takes GUARD_DMG of normal damage
 export const KING_GUARD = { R: 6, MIN: 2, DMG: 0.3 };
+// Kings can't drop below this share of their health until the Final Frenzy (so matches go the distance)
+export const KING_FLOOR = 0.1;
+// Overtime on a tie: health halved, damage and speed doubled
+export const OVERTIME_TIME = 60;
+export const OVERTIME = { HP: 0.5, DMG: 2, SPEED: 2 };
+export const TIE_MARGIN = 0.05; // Kill the King: Kings within 5% health of each other = tie
+// Comeback bots: each team's bot skill (0 = easy, 0.5 = normal, 1 = hard) drifts toward
+// base - lead * RUBBER_BAND, where lead is how far ahead that team is (-1..1)
+export const RUBBER_BAND = 1.6;
+// Melee aim assist for human players (bots keep the plain numbers): wider cone, a bit more reach,
+// and anything in front of you within CLOSE metres gets hit
+export const MELEE_ASSIST = { ARC_BONUS: 50, MIN_ARC: 120, RANGE_BONUS: 0.7, CLOSE: 2.2 };
+export const PROJECTILE_HIT_R = { human: 1.15, bot: 0.85 };
 // The Crowd: knocked-out players vote where the next bonus power-up drops, every CROWD_PERIOD s
 export const CROWD_PERIOD = 12;
 // Squad commands (Kill the King): any human can order their team's bots; the latest order wins

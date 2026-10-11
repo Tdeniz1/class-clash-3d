@@ -142,7 +142,7 @@
           <div id="draftClasses" class="draft-classes" role="group" aria-label="Class for the selected spot"></div>
         </div>
       </div>
-      <p class="muted small draft-note"><b>You're the captain:</b> during the fight, order your bots with Z ⚔ Attack · X 🛡 Defend · C 🚩 Follow me · V 🎯 Focus · B ↺ Formation (📣 on phones). Bots stay in their zone: defenders stay in your half, attackers stay forward. You can go anywhere. Kill their King (300 HP) to win, and protect yours. Unpicked spots get picked for you.</p>
+      <p class="muted small draft-note"><b>You're the captain:</b> during the fight, order your bots with Z ⚔ Attack · X 🛡 Defend · C 🚩 Follow me · V 🎯 Focus · B ↺ Formation (📣 on phones). Bots stay in their zone: defenders stay in your half, attackers stay forward. You can go anywhere. Kill their King (300 HP) to win, and protect yours. Kings can't fall until the Final Frenzy (last 30 s), and a tie goes to Overtime. Unpicked spots get picked for you.</p>
     </div>
   </section>
 
@@ -176,9 +176,9 @@
     </div>
     <div id="teamScores" class="team-scores hidden"></div>
     <div id="kingBars" class="king-bars hidden">
-      <div class="kb red"><span><i id="kgRed" class="kg-shield hidden" title="Guarded: half damage">🛡</i>Red King</span><div class="kbar"><i id="kbRed"></i></div><b id="kbRedHp"></b></div>
+      <div class="kb red"><span><i id="kpRed" class="kg-shield hidden" title="Protected until the Final Frenzy">🔒</i><i id="kgRed" class="kg-shield hidden" title="Guarded: takes 30% damage">🛡</i>Red King</span><div class="kbar"><i id="kbRed"></i></div><b id="kbRedHp"></b></div>
       <div id="frenzyTag" class="frenzy-tag hidden">🔥 2× DAMAGE</div>
-      <div class="kb blue"><span><i id="kgBlue" class="kg-shield hidden" title="Guarded: half damage">🛡</i>Blue King</span><div class="kbar"><i id="kbBlue"></i></div><b id="kbBlueHp"></b></div>
+      <div class="kb blue"><span><i id="kpBlue" class="kg-shield hidden" title="Protected until the Final Frenzy">🔒</i><i id="kgBlue" class="kg-shield hidden" title="Guarded: takes 30% damage">🛡</i>Blue King</span><div class="kbar"><i id="kbBlue"></i></div><b id="kbBlueHp"></b></div>
     </div>
     <ol id="scoreList" class="score-list"></ol>
     <ul id="feed" class="feed"></ul>
@@ -194,6 +194,7 @@
     <div id="finaleBanner" class="finale-banner hidden"><div id="finaleTitle"></div><div id="finaleSub"></div></div>
     <div id="subMsg" class="sub-msg"></div>
     <div id="crosshair" class="crosshair"></div>
+    <div id="hitMarker" class="hit-marker"><i></i><i></i><i></i><i></i></div>
     <div id="zoneArrow" class="zone-arrow">▲</div>
     <div class="me-box">
       <div class="me-line"><span id="meName"></span> · <span id="meClass"></span> · <strong id="meScore">0</strong> pts</div>

@@ -538,3 +538,15 @@ body.touch .squad-hint { display: none; }
 .order-wheel button span { font-size: 9px; font-weight: 700; margin-top: 2px; }
 @media (max-height: 520px) { .order-bar { top: 82px; font-size: 11px; } }
 .kg-shield { font-style: normal; margin-right: 3px; }
+
+/* hit marker: four ticks around the crosshair that flash when your attack lands */
+.hit-marker { position: absolute; left: 50%; top: 50%; width: 0; height: 0; opacity: 0; pointer-events: none; }
+.hit-marker i { position: absolute; width: 3px; height: 11px; margin: -5.5px 0 0 -1.5px; background: #fff; border-radius: 2px; box-shadow: 0 0 3px rgba(0,0,0,0.9); }
+.hit-marker i:nth-child(1) { transform: rotate(45deg) translateY(-12px); }
+.hit-marker i:nth-child(2) { transform: rotate(135deg) translateY(-12px); }
+.hit-marker i:nth-child(3) { transform: rotate(225deg) translateY(-12px); }
+.hit-marker i:nth-child(4) { transform: rotate(315deg) translateY(-12px); }
+.hit-marker.show { animation: hitmark .28s ease-out; }
+.hit-marker.kill i { background: #ff3b30; height: 15px; box-shadow: 0 0 6px rgba(255,59,48,0.9); }
+.hit-marker.kill.show { animation: hitmark .5s ease-out; }
+@keyframes hitmark { 0% { opacity: 1; transform: scale(1.5); } 40% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.1); } }

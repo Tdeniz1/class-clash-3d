@@ -1197,7 +1197,7 @@ document.addEventListener('pointerlockchange', () => {
 
 // ---------- prediction ----------
 function myClass() { const me = mySnapState(), lp = lobbyPlayer(myId); return G.CLASSES[(me && me.c) || (lp ? lp.cls : 'gladiator')]; }
-function mySpeed() { const me = mySnapState(); return myClass().speed * (me && me.sp ? G.SPEED_BUFF : 1) * (me && me.au ? G.KING_AURA.SPEED : 1); }
+function mySpeed() { const me = mySnapState(); return myClass().speed * (me && me.sp ? G.SPEED_BUFF : 1) * (me && me.au ? G.KING_AURA.SPEED : 1) * (lastSnap && lastSnap.ot ? G.OVERTIME.SPEED : 1); }
 function mySnapState() { return lastSnap && lastSnap.p.find(p => p.id === myId); }
 
 function buildInput() {
@@ -1294,6 +1294,12 @@ socket.on('snap', s => {
   } else lastCountdownNum = null;
 });
 
+// crosshair hit marker: white ticks on a hit, bigger red ticks on a knockout
+function hitMark(kill) {
+  const m = $('#hitMarker');
+  m.classList.remove('show'); if (!kill) m.classList.remove('kill'); else m.classList.add('kill');
+  void m.offsetWidth; m.classList.add('show');
+}
 let centerUntil = 0;
 function flashCenter(text, ms) { $('#centerMsg').textContent = text; centerUntil = performance.now() + ms; }
 
@@ -1321,7 +1327,7 @@ function handleEvent(e) {
       }
       // only numbers that matter to you: your hits, hits on you, or fights right next to you
       if (e.by === myId || e.id === myId || (pred && Math.hypot(e.x - pred.x, e.z - pred.z) < 12)) floatText(e.x, e.y, e.z, e.amt, e.by === myId ? 'mine' : '');
-      if (e.id === myId) sfx.hurt(); else if (e.by === myId) sfx.hit();
+      if (e.id === myId) sfx.hurt(); else if (e.by === myId) { sfx.hit(); hitMark(false); }
       break;
     case 'txt':
       if (ch && ch.state && (!pred || Math.hypot(ch.state.x - pred.x, ch.state.z - pred.z) < 12)) floatText(ch.state.x, ch.state.y + 2.6, ch.state.z, e.txt, 'txt');
@@ -1343,7 +1349,7 @@ function handleEvent(e) {
         $('#killCam').innerHTML = killText;
       }
       feed(e.by ? `${nameTag(e.by)} ⚔ ${nameTag(e.id)}` : e.cause === 'meteor' ? `☄ ${nameTag(e.id)} got hit by a meteor` : `${nameTag(e.id)} was knocked out`);
-      if (e.by === myId) { sfx.ko(); flashCenter('+3 KO', 700); }
+      if (e.by === myId) { sfx.ko(); flashCenter('+3 KO', 700); hitMark(true); }
       if (e.king && lp) flashCenter(`${G.TEAM_NAMES[lp.team]} King has fallen!`, 2500);
       if (e.id === myId || (pred && Math.hypot(pred.x - e.x, pred.z - e.z) < 18)) sfx.explode();
       if (e.id === myId && document.pointerLockElement) document.exitPointerLock();
@@ -1369,8 +1375,10 @@ function handleEvent(e) {
       sfx.zone();
       flashCenter('Zone moved!', 900);
       break;
-    case 'sudden':
-      flashCenter('SUDDEN DEATH', 1600);
+    case 'overtime':
+      flashCenter('OVERTIME!', 2600);
+      feed('⚡ Overtime: health halved, damage ×2, speed ×2' + (lobby.mode === 'ktk' ? ', Kings unprotected' : ''));
+      crowdExcite = 2; sfx.roar(); sfx.boom();
       break;
     case 'order': {
       const me2 = lobbyPlayer(myId);
@@ -1932,18 +1940,22 @@ function updateHud(now) {
   const ktk = lobby.mode === 'ktk';
   const z = curMap.zones[s.zone.i];
   $('#zoneInfo').textContent = ktk
-    ? (s.fz ? '🔥 FINAL FRENZY — double damage' : 'Kill the enemy King · protect yours')
+    ? (s.ot ? '⚡ OVERTIME' : s.fz ? '🔥 FINAL FRENZY — double damage' : 'Kill the enemy King · protect yours')
+    : s.ot ? '⚡ OVERTIME — health ½ · damage ×2 · speed ×2'
     : s.zone.next != null ? `Zone moving to ${curMap.zones[s.zone.next].name} in ${Math.ceil(s.zone.t)}s`
     : s.zone.contested ? `${z.name} — CONTESTED` : z.name;
-  $('#timer').classList.toggle('frenzy', !!s.fz);
+  $('#timer').classList.toggle('frenzy', !!(s.fz || s.ot));
+  if (s.ot) $('#timer').textContent = 'OT ' + fmt(s.timer);
   document.body.classList.toggle('ktk', ktk);
-  $('#frenzyTag').classList.toggle('hidden', !s.fz);
+  $('#frenzyTag').classList.toggle('hidden', !(s.fz || s.ot));
+  $('#frenzyTag').textContent = s.ot ? '⚡ OVERTIME ×2' : '🔥 2× DAMAGE';
   $('#kingBars').classList.toggle('hidden', !ktk);
   if (ktk && s.kg) {
     for (const [t, el, txt] of [['red', '#kbRed', '#kbRedHp'], ['blue', '#kbBlue', '#kbBlueHp']]) {
       const k = s.kg[t];
       $(el).style.width = k ? (k.hp / k.mhp * 100) + '%' : '0%';
       $(t === 'red' ? '#kgRed' : '#kgBlue').classList.toggle('hidden', !(k && k.gd));
+      $(t === 'red' ? '#kpRed' : '#kpBlue').classList.toggle('hidden', !(k && k.pf));
       const kc = k && chars.get(k.id);
       if (kc) { if (!kc.dome) { kc.dome = new THREE.Mesh(new THREE.SphereGeometry(2.1, 20, 14, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.18, depthWrite: false, side: THREE.DoubleSide })); kc.model.group.add(kc.dome); } kc.dome.visible = !!k.gd; }
       $(txt).textContent = k ? k.hp : 0;
@@ -1982,7 +1994,7 @@ function updateHud(now) {
   if (killMarker.visible) { const kp = kmc.model.group.position; killMarker.position.set(kp.x, kp.y + 3.4 + Math.sin(now / 150) * 0.15, kp.z); killMarker.rotation.y += 0.05; }
 
   const teams = lobby.mode === 'teams';
-  if (ktk) $('#timer').textContent = fmt(s.phase === 'countdown' ? G.KTK_TIME : s.timer);
+  if (ktk) $('#timer').textContent = (s.ot ? 'OT ' : '') + fmt(s.phase === 'countdown' ? G.KTK_TIME : s.timer);
   $('#teamScores').classList.toggle('hidden', !teams);
   if (teams) {
     const inPlay = G.TEAMS.filter(t => lobby.players.some(p => p.team === t));
