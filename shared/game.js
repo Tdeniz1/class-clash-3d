@@ -145,9 +145,63 @@ export const CLASSES = {
   },
 };
 
-export function groundHeight(x, z) {
+// The King in Kill the King: slow, tanky, short sword. Not pickable by players.
+CLASSES.king = {
+  name: 'King', role: 'Protect him', color: 0xd4a017, hp: 300, speed: 2.6, size: 1.3,
+  attack: { type: 'melee', range: 2.3, arc: 100, dmg: 10, cd: 1.0, kb: 3 },
+  ability: { id: 'none', name: '—', cd: 999 },
+  atkText: 'Short sword — 10 dmg', ablText: '—', passiveText: '—',
+};
+
+// ---------- Kill the King ----------
+export const KTK_TIME = 300;     // round length; if no King falls, the healthier King wins
+export const DRAFT_TIME = 10;    // seconds to pick line-up, spots and classes
+export const TEAM_SIZE = 8;      // fighters per team (plus the King); bots fill empty spots
+// Line-ups as [defenders, midfield, attackers]
+export const FORMATIONS = [[3, 3, 2], [2, 4, 2], [4, 2, 2], [2, 3, 3], [3, 2, 3], [2, 2, 4]];
+export const ROLE_NAMES = { D: 'Defender', M: 'Midfield', A: 'Attacker' };
+// Distance from centre (along the field) where each role spawns, and where the King lives
+export const ROLE_SPAWN = { K: 31, D: 25, M: 17, A: 11 };
+export const KING_HOME = 31;
+// Bot limits: defenders stay in their own half; attackers stay out of the deepest 25% of it
+export const ATTACKER_LIMIT = 27;
+// Respawning: wait KTK_RESPAWN s (FRENZY_RESPAWN in the frenzy), come back at the 25% mark (halfway into your half)
+export const KTK_RESPAWN = 8;
+export const RESPAWN_LINE = 18;
+// Final frenzy: last FRENZY_TIME s — double damage, power-ups spawn FRENZY_PICKUP_RATE x faster, quick respawns
+export const FRENZY_TIME = 30;
+export const FRENZY_RESPAWN = 3;
+export const FRENZY_PICKUP_RATE = 5;
+
+// ---------- maps ----------
+export const MAPS = {
+  arena: {
+    key: 'arena', halfX: ARENA.halfX, halfZ: ARENA.halfZ, mounds: MOUNDS, pillars: PILLARS, walls: WALLS,
+    zones: ZONES, spawns: SPAWNS, pickups: PICKUP_SPOTS,
+  },
+  // Long pitch for Kill the King (x = length). Red defends x < 0, Blue defends x > 0.
+  field: {
+    key: 'field', halfX: 36, halfZ: 15,
+    mounds: [{ x: -31, z: 0, rTop: 3.5, rBot: 5.5, h: 0.8 }, { x: 31, z: 0, rTop: 3.5, rBot: 5.5, h: 0.8 }],
+    pillars: [
+      { x: -10, z: 7, r: 0.8 }, { x: -10, z: -7, r: 0.8 }, { x: 10, z: 7, r: 0.8 }, { x: 10, z: -7, r: 0.8 },
+      { x: -21, z: 10, r: 0.8 }, { x: -21, z: -10, r: 0.8 }, { x: 21, z: 10, r: 0.8 }, { x: 21, z: -10, r: 0.8 },
+      { x: 0, z: 11, r: 0.8 }, { x: 0, z: -11, r: 0.8 },
+    ],
+    walls: [
+      { x: 0, z: 0, w: 0.8, d: 5, h: 1.3 },
+      { x: -15, z: 4, w: 4, d: 0.8, h: 1.3 }, { x: -15, z: -4, w: 4, d: 0.8, h: 1.3 },
+      { x: 15, z: 4, w: 4, d: 0.8, h: 1.3 }, { x: 15, z: -4, w: 4, d: 0.8, h: 1.3 },
+    ],
+    zones: [], spawns: [],
+    pickups: [{ x: 0, z: 7.5 }, { x: 0, z: -7.5 }, { x: -18, z: 0 }, { x: 18, z: 0 }],
+  },
+};
+export const mapFor = mode => (mode === 'ktk' ? MAPS.field : MAPS.arena);
+
+export function groundHeight(x, z, map = MAPS.arena) {
   let h = 0;
-  for (const m of MOUNDS) {
+  for (const m of map.mounds) {
     const r = Math.hypot(x - m.x, z - m.z);
     let mh = 0;
     if (r <= m.rTop) mh = m.h;
@@ -157,9 +211,9 @@ export function groundHeight(x, z) {
   return h;
 }
 
-export function resolveCollision(s) {
+export function resolveCollision(s, map = MAPS.arena) {
   const R = PLAYER_RADIUS;
-  for (const p of PILLARS) {
+  for (const p of map.pillars) {
     const dx = s.x - p.x, dz = s.z - p.z;
     const d = Math.hypot(dx, dz), min = p.r + R;
     if (d < min) {
@@ -168,7 +222,7 @@ export function resolveCollision(s) {
       s.z = p.z + dz / d * min;
     }
   }
-  for (const w of WALLS) {
+  for (const w of map.walls) {
     if (s.y >= w.h - 0.05) continue;
     const hx = w.w / 2 + R, hz = w.d / 2 + R;
     const dx = s.x - w.x, dz = s.z - w.z;
@@ -178,16 +232,16 @@ export function resolveCollision(s) {
       else s.z += Math.sign(dz || 1) * penZ;
     }
   }
-  s.x = Math.max(-ARENA.halfX, Math.min(ARENA.halfX, s.x));
-  s.z = Math.max(-ARENA.halfZ, Math.min(ARENA.halfZ, s.z));
+  s.x = Math.max(-map.halfX, Math.min(map.halfX, s.x));
+  s.z = Math.max(-map.halfZ, Math.min(map.halfZ, s.z));
 }
 
 // True if a point (projectile) is inside solid geometry.
-export function isSolid(x, y, z) {
-  if (Math.abs(x) > ARENA.halfX + 0.5 || Math.abs(z) > ARENA.halfZ + 0.5) return true;
-  if (y < groundHeight(x, z)) return true;
-  for (const p of PILLARS) if (Math.hypot(x - p.x, z - p.z) < p.r) return true;
-  for (const w of WALLS) {
+export function isSolid(x, y, z, map = MAPS.arena) {
+  if (Math.abs(x) > map.halfX + 0.5 || Math.abs(z) > map.halfZ + 0.5) return true;
+  if (y < groundHeight(x, z, map)) return true;
+  for (const p of map.pillars) if (Math.hypot(x - p.x, z - p.z) < p.r) return true;
+  for (const w of map.walls) {
     if (y < w.h && Math.abs(x - w.x) < w.w / 2 && Math.abs(z - w.z) < w.d / 2) return true;
   }
   return false;
@@ -199,7 +253,7 @@ export function facing(yaw) {
 
 // One fixed movement step. Mutates s: {x,y,z,vy,kx,kz,dashT,dashVX,dashVZ,slowT}.
 // inp: {mx,mz,jump} with (mx,mz) a world-space direction of length <= 1.
-export function stepMove(s, inp, dt, baseSpeed) {
+export function stepMove(s, inp, dt, baseSpeed, map = MAPS.arena) {
   const speed = baseSpeed * (s.slowT > 0 ? 0.5 : 1);
   let vx, vz;
   if (s.dashT > 0) {
@@ -219,9 +273,9 @@ export function stepMove(s, inp, dt, baseSpeed) {
   if (s.slowT > 0) s.slowT = Math.max(0, s.slowT - dt);
 
   s.x += vx * dt; s.z += vz * dt;
-  resolveCollision(s);
+  resolveCollision(s, map);
 
-  const gh = groundHeight(s.x, s.z);
+  const gh = groundHeight(s.x, s.z, map);
   const onGround = s.y <= gh + 0.05 && s.vy <= 0;
   if (inp.jump && onGround && s.dashT <= 0) s.vy = JUMP_VELOCITY;
   s.vy -= GRAVITY * dt;

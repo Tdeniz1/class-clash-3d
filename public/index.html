@@ -66,6 +66,7 @@
           <div class="seg" id="modeSeg" role="group" aria-label="Game mode">
             <button data-mode="ffa">Free-for-all</button>
             <button data-mode="teams">Teams</button>
+            <button data-mode="ktk">Kill the King</button>
           </div>
         </div>
         <div class="mode-box mode-box-2">
@@ -87,6 +88,7 @@
             <button id="fillBotsBtn" class="btn btn-small">Fill with bots</button>
           </div>
           <div id="teamPick" class="team-pick hidden"></div>
+          <p id="modeInfo" class="mode-info hidden"></p>
         </div>
         <div class="col col-wide">
           <h2>Choose your class</h2>
@@ -106,6 +108,37 @@
     </div>
   </section>
 
+  <!-- KILL THE KING DRAFT -->
+  <section id="draft" class="screen hidden">
+    <div class="panel draft-panel">
+      <header class="draft-head">
+        <div>
+          <div class="eyebrow" id="draftTeam">Your team</div>
+          <h2>Build your team</h2>
+        </div>
+        <div class="draft-timer" aria-live="polite"><span id="draftTimer">10</span><small>sec</small></div>
+      </header>
+      <p class="draft-hint">Pick a line-up · tap a spot → <em>Play here</em> · tap a bot's spot → pick its class</p>
+      <ol class="draft-steps">
+        <li><b>Line-up:</b> how many Defenders – Midfield – Attackers.</li>
+        <li><b>Your spot:</b> tap a spot, then <em>Play here</em>.</li>
+        <li><b>Bots:</b> tap any bot's spot and pick its class.</li>
+      </ol>
+      <div class="draft-body">
+        <div id="pitch" class="pitch"></div>
+        <div class="draft-side">
+          <div id="formSeg" class="form-seg" role="group" aria-label="Line-up"></div>
+          <div class="draft-bottom">
+            <div id="slotInfo" class="slot-info"></div>
+            <button id="takeSlotBtn" class="btn btn-small btn-primary">Play here</button>
+          </div>
+          <div id="draftClasses" class="draft-classes" role="group" aria-label="Class for the selected spot"></div>
+        </div>
+      </div>
+      <p class="muted small draft-note">Bots stay in their zone: defenders stay in your half, attackers stay forward. You can go anywhere. Kill their King (300 HP) to win, and protect yours. Unpicked spots get picked for you.</p>
+    </div>
+  </section>
+
   <!-- RESULTS -->
   <section id="results" class="screen hidden">
     <div class="panel results-panel">
@@ -113,7 +146,7 @@
       <h2 id="winnerText" class="winner"></h2>
       <div id="teamResult" class="team-result"></div>
       <table class="score-table">
-        <thead><tr><th>#</th><th>Player</th><th>Class</th><th>Points</th><th>KOs</th></tr></thead>
+        <thead><tr><th>#</th><th>Player</th><th>Class</th><th>Points</th><th>KOs</th><th>Dmg</th></tr></thead>
         <tbody id="resultsBody"></tbody>
       </table>
       <button id="againBtn" class="btn btn-primary">Play again</button>
@@ -128,6 +161,11 @@
       <div id="zoneInfo" class="zone-info"></div>
     </div>
     <div id="teamScores" class="team-scores hidden"></div>
+    <div id="kingBars" class="king-bars hidden">
+      <div class="kb red"><span>Red King</span><div class="kbar"><i id="kbRed"></i></div><b id="kbRedHp"></b></div>
+      <div id="frenzyTag" class="frenzy-tag hidden">🔥 2× DAMAGE</div>
+      <div class="kb blue"><span>Blue King</span><div class="kbar"><i id="kbBlue"></i></div><b id="kbBlueHp"></b></div>
+    </div>
     <ol id="scoreList" class="score-list"></ol>
     <ul id="feed" class="feed"></ul>
     <div id="centerMsg" class="center-msg"></div>
@@ -144,6 +182,23 @@
       <div class="cd" id="cdAbl"><span class="key">E</span><span class="cd-name" id="ablName">Special</span></div>
     </div>
     <div id="lockHint" class="lock-hint hidden">Click to play · Esc frees your mouse</div>
+  </div>
+
+  <!-- DEATH SCREEN -->
+  <div id="deathScreen" class="death hidden" role="dialog" aria-label="Knocked out">
+    <div class="death-panel">
+      <div class="death-title">Knocked out</div>
+      <div class="death-timer">Back in <b id="deathTime">8</b>s<span id="deathWhere"></span></div>
+      <div class="eyebrow">Switch class for your next life</div>
+      <div id="deathClasses" class="death-classes"></div>
+      <div class="eyebrow" id="deathStatsTitle">Your team</div>
+      <div class="death-table-wrap">
+        <table class="death-stats">
+          <thead><tr><th>Player</th><th>Class</th><th>KOs</th><th>Deaths</th><th>Damage</th><th id="kdHead">King dmg</th></tr></thead>
+          <tbody id="deathStats"></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
   <!-- TOUCH CONTROLS -->

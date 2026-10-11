@@ -18,6 +18,11 @@ For quick testing, `ROUND_TIME=20 npm start` shortens rounds to 20 seconds.
 https://class-clash-3d-production.up.railway.app (Railway). Redeploy with `railway up --service class-clash-3d --detach`.
 Rooms live in server memory, so keep the service at **1 replica**: with more, players in the same room could land on different servers.
 
+## Modes
+
+- **Free-for-all / Teams:** King of the Hill in the colosseum (see Features).
+- **Kill the King:** 8v8 on a long field (bots fill every empty spot). A 10 s draft before the fight: pick a line-up (Defenders–Midfield–Attackers, e.g. 3-3-2), take a spot, and choose a class for every bot. Each team has a slow 300 HP King with a 10 dmg short sword; kill theirs to win. Bots keep to their zone (defenders stay in their half, attackers stay out of the deepest 25%); humans can go anywhere. Dying opens a death screen (8 s countdown, class swap, team stats) and you respawn on your 25% line. 5-minute rounds; if no King falls, the healthier King wins. Last 30 s = Final Frenzy: double damage, power-ups spawn 5x faster, 3 s respawns. Timings live in `shared/game.js` (`DRAFT_TIME`, `KTK_RESPAWN`, `FRENZY_*`).
+
 ## Features
 
 - 8 classes: Tank, Archer, Mage, Gladiator, Rogue, Paladin, Bomber, Lancer (each with an attack, a special and a passive; all numbers live in `shared/game.js`)

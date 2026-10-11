@@ -85,32 +85,37 @@ scene.add(sun);
 const obstacles = []; // meshes the camera should not clip through
 const lam = c => new THREE.MeshLambertMaterial({ color: c, flatShading: true });
 
-function buildArena() {
+const arenaGroup = new THREE.Group();
+scene.add(arenaGroup);
+let curMap = G.MAPS.arena;
+const gh = (x, z) => G.groundHeight(x, z, curMap);
+
+function buildArena(map) {
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(160, 140), lam(0xc9a46a));
   ground.rotation.x = -Math.PI / 2; ground.position.y = -0.02; ground.receiveShadow = true;
-  scene.add(ground);
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(G.ARENA.halfX * 2 + 1, G.ARENA.halfZ * 2 + 1), lam(0xe2c48c));
+  arenaGroup.add(ground);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(map.halfX * 2 + 1, map.halfZ * 2 + 1), lam(0xe2c48c));
   floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true;
-  scene.add(floor);
+  arenaGroup.add(floor);
   obstacles.push(floor);
 
   // scuffed floor tiles for texture
   const tileMat = lam(0xd6b57b);
-  for (let i = 0; i < 70; i++) {
+  for (let i = 0; i < Math.round(map.halfX * map.halfZ / 8); i++) {
     const t = new THREE.Mesh(new THREE.PlaneGeometry(1 + Math.random() * 2, 1 + Math.random() * 2), tileMat);
     t.rotation.x = -Math.PI / 2; t.rotation.z = Math.random() * 3;
-    t.position.set((Math.random() - 0.5) * 38, 0.005, (Math.random() - 0.5) * 28);
+    t.position.set((Math.random() - 0.5) * (map.halfX * 2 - 2), 0.005, (Math.random() - 0.5) * (map.halfZ * 2 - 2));
     t.receiveShadow = true;
-    scene.add(t);
+    arenaGroup.add(t);
   }
 
   // outer walls
   const wallMat = lam(0xb98b55);
-  const hx = G.ARENA.halfX + 0.5 + 0.6, hz = G.ARENA.halfZ + 0.5 + 0.6;
+  const hx = map.halfX + 0.5 + 0.6, hz = map.halfZ + 0.5 + 0.6;
   for (const [w, d, x, z] of [[hx * 2 + 1.2, 1.2, 0, -hz], [hx * 2 + 1.2, 1.2, 0, hz], [1.2, hz * 2, -hx, 0], [1.2, hz * 2, hx, 0]]) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, 2.2, d), wallMat);
     m.position.set(x, 1.1, z); m.castShadow = m.receiveShadow = true;
-    scene.add(m); obstacles.push(m);
+    arenaGroup.add(m); obstacles.push(m);
   }
   // colosseum stands: stepped tiers with arches
   const tierMat = [lam(0xc89a62), lam(0xb88a52), lam(0xa87a44)];
@@ -121,61 +126,90 @@ function buildArena() {
       [3, hz * 2 + off * 2 - 1, -hx - off, 0], [3, hz * 2 + off * 2 - 1, hx + off, 0]]) {
       const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), tierMat[t]);
       m.position.set(x, h / 2, z); m.receiveShadow = true;
-      scene.add(m); obstacles.push(m); // camera must not end up inside the stands
+      arenaGroup.add(m); obstacles.push(m); // camera must not end up inside the stands
     }
   }
   const archMat = lam(0x7a5530);
-  for (let i = -8; i <= 8; i++) {
+  const nArch = Math.floor(hx / 3.4) + 2;
+  for (let i = -nArch; i <= nArch; i++) {
     for (const z of [-hz - 12.7, hz + 12.7]) {
       const a = new THREE.Mesh(new THREE.BoxGeometry(1.4, 2.4, 0.3), archMat);
-      a.position.set(i * 3.4, 9.6, z); scene.add(a);
+      a.position.set(i * 3.4, 9.6, z); arenaGroup.add(a);
     }
   }
   // banners
   const bannerCols = [0xb5302a, 0xe3a857, 0x3a2b1d];
-  for (let i = 0; i < 10; i++) {
+  const nBan = Math.max(5, Math.round(hx / 4));
+  for (let i = 0; i < nBan * 2; i++) {
     const b = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 3), new THREE.MeshLambertMaterial({ color: bannerCols[i % 3], side: THREE.DoubleSide }));
-    const side = i < 5 ? -1 : 1;
-    b.position.set(-16 + (i % 5) * 8, 3.4, side * (hz + 2.45));
-    scene.add(b);
+    const side = i < nBan ? -1 : 1;
+    b.position.set(-hx + 3 + (i % nBan) * ((hx * 2 - 6) / (nBan - 1)), 3.4, side * (hz + 2.45));
+    arenaGroup.add(b);
   }
 
   // mounds
   const moundMat = lam(0xd2ad72);
-  for (const m of G.MOUNDS) {
+  for (const m of map.mounds) {
     const mesh = new THREE.Mesh(new THREE.CylinderGeometry(m.rTop, m.rBot, m.h, 28), moundMat);
     mesh.position.set(m.x, m.h / 2, m.z); mesh.castShadow = mesh.receiveShadow = true;
-    scene.add(mesh); obstacles.push(mesh);
+    arenaGroup.add(mesh); obstacles.push(mesh);
     const rim = new THREE.Mesh(new THREE.TorusGeometry(m.rTop, 0.12, 6, 28), lam(0xa98250));
     rim.rotation.x = Math.PI / 2; rim.position.set(m.x, m.h + 0.02, m.z);
-    scene.add(rim);
+    arenaGroup.add(rim);
   }
   // pillars
   const pMat = lam(0xeadcc0), capMat = lam(0xcdbb98);
-  G.PILLARS.forEach((p, i) => {
+  map.pillars.forEach((p, i) => {
     const h = 2.6 + ((i * 37) % 10) / 4;
     const col = new THREE.Mesh(new THREE.CylinderGeometry(p.r * 0.85, p.r, h, 10), pMat);
     col.position.set(p.x, h / 2, p.z); col.castShadow = col.receiveShadow = true;
-    scene.add(col); obstacles.push(col);
+    arenaGroup.add(col); obstacles.push(col);
     const base = new THREE.Mesh(new THREE.BoxGeometry(p.r * 2.4, 0.35, p.r * 2.4), capMat);
-    base.position.set(p.x, 0.17, p.z); base.castShadow = true; scene.add(base);
+    base.position.set(p.x, 0.17, p.z); base.castShadow = true; arenaGroup.add(base);
     if (i % 2 === 0) {
       const cap = new THREE.Mesh(new THREE.BoxGeometry(p.r * 2.3, 0.4, p.r * 2.3), capMat);
-      cap.position.set(p.x, h + 0.2, p.z); cap.castShadow = true; scene.add(cap);
+      cap.position.set(p.x, h + 0.2, p.z); cap.castShadow = true; arenaGroup.add(cap);
     } else {
       const chunk = new THREE.Mesh(new THREE.DodecahedronGeometry(0.5), pMat);
-      chunk.position.set(p.x + 1.1, 0.35, p.z + 0.4); chunk.castShadow = true; scene.add(chunk);
+      chunk.position.set(p.x + 1.1, 0.35, p.z + 0.4); chunk.castShadow = true; arenaGroup.add(chunk);
     }
   });
   // low walls
   const lwMat = lam(0xbfa27a);
-  for (const w of G.WALLS) {
+  for (const w of map.walls) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w.w, w.h, w.d), lwMat);
     m.position.set(w.x, w.h / 2, w.z); m.castShadow = m.receiveShadow = true;
-    scene.add(m); obstacles.push(m);
+    arenaGroup.add(m); obstacles.push(m);
+  }
+  if (map.key === 'field') buildFieldMarkings(map);
+}
+
+// Kill the King pitch: team-tinted halves, halfway line, respawn lines and bot-limit lines
+function buildFieldMarkings(map) {
+  const flat = (w, d, x, z, color, opacity, y = 0.02) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false }));
+    m.rotation.x = -Math.PI / 2; m.position.set(x, y, z);
+    arenaGroup.add(m);
+  };
+  flat(map.halfX, map.halfZ * 2, -map.halfX / 2, 0, G.TEAM_COLORS.red, 0.1);
+  flat(map.halfX, map.halfZ * 2, map.halfX / 2, 0, G.TEAM_COLORS.blue, 0.1);
+  flat(0.35, map.halfZ * 2, 0, 0, 0xffffff, 0.75, 0.03);
+  for (const side of [-1, 1]) {
+    for (let z = -map.halfZ + 0.5; z < map.halfZ; z += 2) {
+      flat(0.25, 1, side * G.ATTACKER_LIMIT, z + 0.5, 0xffffff, 0.45, 0.03); // bot attackers stop here
+      flat(0.2, 0.6, side * G.RESPAWN_LINE, z + 0.3, side < 0 ? G.TEAM_COLORS.red : G.TEAM_COLORS.blue, 0.6, 0.03); // respawn line
+    }
+    // banner poles at each King's base
+    const col = side < 0 ? G.TEAM_COLORS.red : G.TEAM_COLORS.blue;
+    for (const z of [-5, 5]) {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 4, 6), lam(0x5a4632));
+      pole.position.set(side * (G.KING_HOME + 4), 2, z);
+      const flag = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.9), new THREE.MeshLambertMaterial({ color: col, side: THREE.DoubleSide }));
+      flag.position.set(side * (G.KING_HOME + 4), 3.4, z + 0.7); flag.rotation.y = Math.PI / 2;
+      arenaGroup.add(pole, flag);
+    }
   }
 }
-buildArena();
 
 // ---------- zone ----------
 function groundRing(cx, cz, rIn, rOut, color, opacity) {
@@ -183,7 +217,7 @@ function groundRing(cx, cz, rIn, rOut, color, opacity) {
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
   for (let i = 0; i < pos.count; i++) {
-    pos.setY(i, G.groundHeight(cx + pos.getX(i), cz + pos.getZ(i)) + 0.06);
+    pos.setY(i, gh(cx + pos.getX(i), cz + pos.getZ(i)) + 0.06);
   }
   geo.computeVertexNormals();
   const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity, side: THREE.DoubleSide, depthWrite: false }));
@@ -197,13 +231,13 @@ let zoneFill = null, zoneEdge = null, zoneBeam = null, nextZoneMesh = null, zone
 
 function setZone(i) {
   zoneGroup.clear();
-  const z = G.ZONES[i];
+  const z = curMap.zones[i];
   zoneFill = groundRing(z.x, z.z, 0, G.ZONE_RADIUS, 0xffffff, 0.22);
   zoneEdge = groundRing(z.x, z.z, G.ZONE_RADIUS - 0.25, G.ZONE_RADIUS, 0xffffff, 0.9);
   zoneBeam = new THREE.Mesh(
     new THREE.CylinderGeometry(G.ZONE_RADIUS * 0.96, G.ZONE_RADIUS, 40, 40, 1, true),
     new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false }));
-  zoneBeam.position.set(z.x, G.groundHeight(z.x, z.z) + 20, z.z);
+  zoneBeam.position.set(z.x, gh(z.x, z.z) + 20, z.z);
   zoneGroup.add(zoneFill, zoneEdge, zoneBeam);
   zoneShownIdx = i;
 }
@@ -211,15 +245,27 @@ function setZone(i) {
 function setNextZone(i) {
   if (nextZoneMesh) { scene.remove(nextZoneMesh); nextZoneMesh = null; }
   if (i != null) {
-    const z = G.ZONES[i];
+    const z = curMap.zones[i];
     nextZoneMesh = groundRing(z.x, z.z, G.ZONE_RADIUS - 0.35, G.ZONE_RADIUS, 0xfff3c4, 0.6);
     scene.add(nextZoneMesh);
   }
   nextShownIdx = i;
 }
 
+function setMap(key) {
+  const m = G.MAPS[key] || G.MAPS.arena;
+  if (m === curMap && arenaGroup.children.length) return;
+  curMap = m;
+  arenaGroup.clear(); obstacles.length = 0;
+  buildArena(m);
+  zoneGroup.clear(); zoneFill = zoneEdge = zoneBeam = null; zoneShownIdx = -1;
+  setNextZone(null);
+  Object.assign(sun.shadow.camera, { left: -m.halfX - 6, right: m.halfX + 6, top: m.halfZ + 7, bottom: -m.halfZ - 7 });
+  sun.shadow.camera.updateProjectionMatrix();
+}
+
 // ---------- characters ----------
-const BODY_W = { tank: 1.35, archer: 0.8, mage: 0.95, gladiator: 1.05, rogue: 0.82, paladin: 1.2, bomber: 1.1, lancer: 0.95 };
+const BODY_W = { king: 1.3, tank: 1.35, archer: 0.8, mage: 0.95, gladiator: 1.05, rogue: 0.82, paladin: 1.2, bomber: 1.1, lancer: 0.95 };
 
 function box(w, h, d, mat, x = 0, y = 0, z = 0) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
@@ -248,6 +294,11 @@ function buildWeapon(cls, s) {
       orb.position.y = 1.4; w.add(orb);
       break;
     }
+    case 'king':
+      w.add(box(0.1, 0.22, 0.1, gold, 0, 0, 0));
+      w.add(box(0.26, 0.06, 0.12, gold, 0, 0.13, 0));
+      w.add(box(0.1, 0.6, 0.05, metal, 0, 0.47, 0));
+      break;
     case 'gladiator':
       w.add(box(0.1, 0.25, 0.1, wood, 0, 0, 0));
       w.add(box(0.2, 0.06, 0.12, gold, 0, 0.14, 0));
@@ -295,6 +346,18 @@ function makeCharacter(cls, ringColor) {
 
   const extras = [];
   switch (cls) {
+    case 'king': {
+      // gold crown with spikes + a cape in the team color
+      const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.3 * s, 0.3 * s, 0.16 * s, 10, 1, true), trim);
+      crown.position.set(0, 1.88 * s, 0); extras.push(crown);
+      for (let k = 0; k < 5; k++) {
+        const a = k / 5 * Math.PI * 2, spike = new THREE.Mesh(new THREE.ConeGeometry(0.06 * s, 0.18 * s, 4), trim);
+        spike.position.set(Math.cos(a) * 0.27 * s, 2.02 * s, Math.sin(a) * 0.27 * s); extras.push(spike);
+      }
+      extras.push(box(0.85 * bw, 1.1 * s, 0.08, lam(ringColor), 0, 0.95 * s, 0.27 * s));
+      extras.push(box(0.5 * s, 0.14 * s, 0.5 * s, lam(0xf1e3c6), 0, 1.38 * s, 0));
+      break;
+    }
     case 'tank':
       extras.push(box(0.4 * s, 0.22 * s, 0.55 * s, lam(0x8d99ae), -0.55 * bw, 1.3 * s, 0), box(0.4 * s, 0.22 * s, 0.55 * s, lam(0x8d99ae), 0.55 * bw, 1.3 * s, 0));
       break;
@@ -360,16 +423,17 @@ function makeCharacter(cls, ringColor) {
 
 const chars = new Map(); // id -> { key, model, buf, state, tag, flashT, atkT, walk, lastPos }
 function lobbyPlayer(id) { return lobby && lobby.players.find(p => p.id === id); }
+const isTeamMode = () => !!lobby && (lobby.mode === 'teams' || lobby.mode === 'ktk');
 function ringColorFor(lp) {
   if (!lp) return 0xffffff;
-  if (lobby.mode === 'teams') return G.TEAM_COLORS[lp.team];
+  if (isTeamMode()) return G.TEAM_COLORS[lp.team];
   return G.PLAYER_COLORS[lp.colorIdx] ?? 0xffffff;
 }
 const hex = c => '#' + c.toString(16).padStart(6, '0');
 
-function ensureChar(id) {
+function ensureChar(id, snapCls) {
   const lp = lobbyPlayer(id);
-  const cls = lp ? lp.cls : 'gladiator';
+  const cls = snapCls || (lp ? lp.cls : 'gladiator');
   const rc = ringColorFor(lp);
   const key = cls + ':' + rc;
   let ch = chars.get(id);
@@ -614,7 +678,7 @@ function renderLobby() {
   $('#modeSeg').querySelectorAll('button').forEach(b => { b.classList.toggle('on', b.dataset.mode === L.mode); b.disabled = !host; });
   $('#botSeg').querySelectorAll('button').forEach(b => { b.classList.toggle('on', b.dataset.lvl === (L.botLevel || 'normal')); b.disabled = !host; });
   $('#playerCount').textContent = `${L.players.length}/${G.MAX_PLAYERS}`;
-  const order = L.mode === 'teams' ? [...L.players].sort((a, b) => G.TEAMS.indexOf(a.team) - G.TEAMS.indexOf(b.team)) : L.players;
+  const order = isTeamMode() ? [...L.players].sort((a, b) => G.TEAMS.indexOf(a.team) - G.TEAMS.indexOf(b.team)) : L.players;
   $('#playerList').innerHTML = order.map(p => {
     const c = G.CLASSES[p.cls];
     const color = hex(ringColorFor(p));
@@ -622,19 +686,22 @@ function renderLobby() {
       <span class="dot" style="background:${color}"></span>
       <span class="p-name">${esc(p.name)}</span>
       <span class="p-cls">${c.name}</span>
-      ${L.mode === 'teams' ? `<span class="badge ${p.team}">${G.TEAM_NAMES[p.team]}</span>` : ''}
+      ${isTeamMode() ? `<span class="badge ${p.team}">${G.TEAM_NAMES[p.team]}</span>` : ''}
       ${p.id === L.hostId ? '<span class="badge host">Host</span>' : ''}
       ${!p.connected ? '<span class="badge off">Away</span>' : p.ready ? '<span class="badge ready">Ready</span>' : '<span class="badge">…</span>'}
       ${host && p.isBot && L.mode === 'teams' ? `<button class="swap-btn" data-swap="${p.id}" aria-label="Switch team">⇄</button>` : ''}
       ${host && p.isBot ? `<button class="x-btn" data-remove="${p.id}" aria-label="Remove bot">×</button>` : ''}
     </li>`;
   }).join('');
-  $('#hostTools').classList.toggle('hidden', !host);
+  const ktk = L.mode === 'ktk';
+  $('#hostTools').classList.toggle('hidden', !host || ktk);
+  $('#modeInfo').classList.toggle('hidden', !ktk);
+  $('#modeInfo').innerHTML = ktk ? '<b>Kill the King</b> — 8v8 on a long field. Bots fill every empty spot. Right before the fight you get 10 seconds to pick your line-up, your spot, and a class for every bot. Kill their King (300 HP) to win.' : '';
   $('#addBotBtn').disabled = L.players.length >= G.MAX_PLAYERS;
   $('#fillBotsBtn').disabled = L.players.length >= G.MAX_PLAYERS;
-  $('#teamPick').classList.toggle('hidden', L.mode !== 'teams');
-  if (L.mode === 'teams') {
-    $('#teamPick').innerHTML = G.TEAMS.map(t => {
+  $('#teamPick').classList.toggle('hidden', !isTeamMode());
+  if (isTeamMode()) {
+    $('#teamPick').innerHTML = (L.mode === 'ktk' ? ['red', 'blue'] : G.TEAMS).map(t => {
       const n = L.players.filter(p => p.team === t).length;
       return `<button data-team="${t}" class="btn btn-small team-btn team-${t} ${me && me.team === t ? 'current' : ''}">${me && me.team === t ? 'On' : 'Join'} ${G.TEAM_NAMES[t]} (${n})</button>`;
     }).join('');
@@ -656,12 +723,13 @@ function renderLobby() {
   $('#startBtn').classList.toggle('hidden', !host);
   const notReady = L.players.filter(p => !p.ready && p.connected);
   const teamsOk = L.mode !== 'teams' || new Set(L.players.map(p => p.team)).size >= 2;
-  const canStart = L.players.length >= 2 && !notReady.length && teamsOk;
+  const minPlayers = L.mode === 'ktk' ? 1 : 2;
+  const canStart = L.players.length >= minPlayers && !notReady.length && (teamsOk || L.mode === 'ktk');
   $('#startBtn').disabled = !canStart;
   $('#startHint').textContent = host
-    ? (L.players.length < 2 ? 'Need at least 2 players — share the code or add a bot.'
+    ? (L.players.length < minPlayers ? 'Need at least 2 players — share the code or add a bot.'
       : notReady.length ? `Waiting for: ${notReady.map(p => p.name).join(', ')}`
-      : !teamsOk ? 'At least 2 teams need players — pick a team above.' : 'Everyone is ready!')
+      : !teamsOk && L.mode !== 'ktk' ? 'At least 2 teams need players — pick a team above.' : 'Everyone is ready!')
     : 'The host starts the match when everyone is ready.';
 }
 
@@ -670,20 +738,24 @@ function renderResults() {
   if (!R) return;
   const nameOf = id => (R.players.find(p => p.id === id) || {}).name || '?';
   if (R.winner === 'draw') $('#winnerText').textContent = "It's a draw!";
+  else if (R.mode === 'ktk') $('#winnerText').textContent = G.TEAM_NAMES[R.winner] + ' team wins!';
   else if (R.mode === 'teams') $('#winnerText').textContent = G.TEAM_NAMES[R.winner] + ' team wins!';
   else $('#winnerText').textContent = nameOf(R.winner) + ' wins!';
-  $('#teamResult').innerHTML = R.mode === 'teams'
+  $('#teamResult').innerHTML = R.mode === 'ktk'
+    ? `<span class="ts red">Red King ${R.kingHp.red} HP</span> <span class="ts blue">Blue King ${R.kingHp.blue} HP</span>`
+    : R.mode === 'teams'
     ? R.teams.map(t => `<span class="ts ${t}">${R.teamScore[t]}</span>`).join(' <span class="ts-sep">vs</span> ') : '';
   $('#resultsBody').innerHTML = R.players.map((p, i) => `<tr class="${p.id === myId ? 'me' : ''}">
-    <td>${i + 1}</td><td>${esc(p.name)}${R.mode === 'teams' ? ` <span class="badge ${p.team}">${G.TEAM_NAMES[p.team]}</span>` : ''}</td>
-    <td>${G.CLASSES[p.cls].name}</td><td>${p.score}</td><td>${p.kos}</td></tr>`).join('');
+    <td>${i + 1}</td><td>${esc(p.name)}${R.mode !== 'ffa' ? ` <span class="badge ${p.team}">${G.TEAM_NAMES[p.team]}</span>` : ''}</td>
+    <td>${G.CLASSES[p.cls].name}</td><td>${p.score}</td><td>${p.kos}</td><td>${p.dmg || 0}</td></tr>`).join('');
   const host = lobby.hostId === myId;
   $('#againBtn').classList.toggle('hidden', !host);
   $('#againHint').textContent = host ? '' : 'Waiting for the host to start another round…';
 }
 
 function showScreen(name) {
-  for (const id of ['home', 'lobby', 'results']) $('#' + id).classList.toggle('hidden', id !== name);
+  for (const id of ['home', 'lobby', 'results', 'draft']) $('#' + id).classList.toggle('hidden', id !== name);
+  if (name !== 'game') $('#deathScreen').classList.add('hidden');
   const playing = name === 'game';
   $('#hud').classList.toggle('hidden', !playing);
   $('#touch').classList.toggle('hidden', !(playing && isTouch));
@@ -698,10 +770,16 @@ socket.on('lobby', L => {
   lobby = L;
   if (!myId || !lobbyPlayer(myId)) return;
   const inMatch = ['countdown', 'playing', 'sudden'].includes(L.phase);
-  if (L.phase === 'lobby') { renderLobby(); showScreen('lobby'); }
+  setMap(L.map);
+  if (L.phase === 'draft') {
+    if (prevPhase !== 'draft') { resetMatchState(); selSlot = null; }
+    draftDeadline = performance.now() + L.draftLeft * 1000;
+    renderDraft(); showScreen('draft');
+  }
+  else if (L.phase === 'lobby') { renderLobby(); showScreen('lobby'); }
   else if (L.phase === 'ended') { renderResults(); showScreen('results'); resetMatchState(); }
   else if (inMatch) {
-    if (prevPhase !== L.phase && L.phase === 'countdown') resetMatchState();
+    if (prevPhase !== L.phase && L.phase === 'countdown' && prevPhase !== 'draft') resetMatchState();
     showScreen('game');
     $('#ablName').textContent = G.CLASSES[lobbyPlayer(myId).cls].ability.name;
     $('#cdAtk .key').textContent = isTouch ? '⚔' : 'Click';
@@ -733,6 +811,48 @@ $('#iosTipClose').onclick = () => { store.set('cc_iostip_done', true); $('#iosTi
 if (isTouch) {
   document.querySelector('.rules').innerHTML = '<strong>How to play:</strong> left thumb moves · drag the right side to look · ⚔ attack · ✦ special · ⤒ jump. Stand in the glowing zone to score.';
 }
+
+// ---------- Kill the King draft ----------
+let selSlot = null, draftDeadline = 0;
+const myDraft = () => { const me = lobbyPlayer(myId); return lobby && lobby.draft && me ? lobby.draft[me.team] : null; };
+
+for (const id of G.CLASS_ORDER) {
+  const c = G.CLASSES[id];
+  const mk = () => { const b = document.createElement('button'); b.dataset.cls = id; b.innerHTML = `<i style="background:${hex(c.color)}"></i>${c.name}`; return b; };
+  $('#draftClasses').appendChild(mk());
+  $('#deathClasses').appendChild(mk());
+}
+
+function renderDraft() {
+  const d = myDraft(), me = lobbyPlayer(myId);
+  if (!d || !me) return;
+  if (selSlot == null || selSlot >= d.slots.length) selSlot = Math.max(0, d.slots.findIndex(sl => sl.humanId === myId));
+  $('#draftTeam').textContent = `Kill the King · ${G.TEAM_NAMES[me.team]} team`;
+  $('#draftTeam').style.color = hex(G.TEAM_COLORS[me.team]);
+  $('#formSeg').innerHTML = G.FORMATIONS.map(f => `<button data-f="${f.join('-')}" class="${f.join() === d.formation.join() ? 'on' : ''}" aria-pressed="${f.join() === d.formation.join()}">${f.join('-')}</button>`).join('');
+  const lane = role => d.slots.map((sl, i) => ({ sl, i })).filter(x => x.sl.role === role).map(({ sl, i }) => {
+    const h = sl.humanId && lobbyPlayer(sl.humanId);
+    const who = sl.humanId === myId ? 'You' : h ? esc(h.name) : 'Bot';
+    return `<button class="slot ${sl.humanId === myId ? 'mine' : ''} ${h ? 'human' : ''} ${i === selSlot ? 'sel' : ''}" data-idx="${i}">
+      <span class="s-cls" style="color:${hex(G.CLASSES[sl.cls].color === 0x2b2d42 ? 0x9a9cc0 : G.CLASSES[sl.cls].color)}">${G.CLASSES[sl.cls].name}</span><span class="s-who">${who}</span></button>`;
+  }).join('');
+  $('#pitch').innerHTML = `<div class="king-spot"><span>👑</span>King<br>300 HP</div>
+    <div class="lane"><div class="lane-title">Defense</div>${lane('D')}</div>
+    <div class="lane"><div class="lane-title">Midfield</div>${lane('M')}</div>
+    <div class="lane"><div class="lane-title">Attack →</div>${lane('A')}</div>`;
+  const sl = d.slots[selSlot], h = sl.humanId && lobbyPlayer(sl.humanId);
+  const roleNo = d.slots.slice(0, selSlot + 1).filter(x => x.role === sl.role).length;
+  $('#slotInfo').innerHTML = `<b>${G.ROLE_NAMES[sl.role]} ${roleNo}</b> · ${sl.humanId === myId ? 'you' : h ? esc(h.name) : 'bot'} · ${G.CLASSES[sl.cls].name}`;
+  $('#takeSlotBtn').classList.toggle('hidden', !!sl.humanId);
+  const locked = sl.humanId && sl.humanId !== myId;
+  $('#draftClasses').querySelectorAll('button').forEach(b => { b.classList.toggle('on', b.dataset.cls === sl.cls); b.disabled = !!locked; });
+}
+
+$('#formSeg').addEventListener('click', e => { const b = e.target.closest('[data-f]'); if (b) socket.emit('draftFormation', b.dataset.f.split('-').map(Number)); });
+$('#pitch').addEventListener('click', e => { const b = e.target.closest('[data-idx]'); if (b) { selSlot = +b.dataset.idx; renderDraft(); } });
+$('#takeSlotBtn').onclick = () => { if (selSlot != null) socket.emit('draftTake', selSlot); };
+$('#draftClasses').addEventListener('click', e => { const b = e.target.closest('[data-cls]'); if (b && !b.disabled && selSlot != null) socket.emit('draftClass', { idx: selSlot, cls: b.dataset.cls }); });
+$('#deathClasses').addEventListener('click', e => { const b = e.target.closest('[data-cls]'); if (b) socket.emit('respawnClass', b.dataset.cls); });
 
 // ---------- settings ----------
 $('#sensInput').value = sens;
@@ -827,7 +947,7 @@ document.addEventListener('pointerlockchange', () => {
 });
 
 // ---------- prediction ----------
-function myClass() { const lp = lobbyPlayer(myId); return G.CLASSES[lp ? lp.cls : 'gladiator']; }
+function myClass() { const me = mySnapState(), lp = lobbyPlayer(myId); return G.CLASSES[(me && me.c) || (lp ? lp.cls : 'gladiator')]; }
 function mySpeed() { const me = mySnapState(); return myClass().speed * (me && me.sp ? G.SPEED_BUFF : 1); }
 function mySnapState() { return lastSnap && lastSnap.p.find(p => p.id === myId); }
 
@@ -863,7 +983,7 @@ function fixedStep() {
   const frozen = lastSnap.phase === 'countdown';
   if (frozen) { inp.mx = 0; inp.mz = 0; inp.jump = false; }
   inp.skip = me.dead;
-  if (pred && !inp.skip) G.stepMove(pred, inp, G.DT, mySpeed());
+  if (pred && !inp.skip) G.stepMove(pred, inp, G.DT, mySpeed(), curMap);
   pending.push(inp);
   if (pending.length > 90) pending.shift();
   const { skip, ...wire } = inp;
@@ -875,7 +995,7 @@ function reconcile(ps) {
   pred = { x: ps.x, y: ps.y, z: ps.z, vy: ps.vy, kx: ps.kx, kz: ps.kz, dashT: ps.dT, dashVX: ps.dX, dashVZ: ps.dZ, slowT: ps.sT };
   pending = pending.filter(i => i.seq > ps.seq);
   const spd = mySpeed();
-  if (!ps.dead) for (const i of pending) if (!i.skip) G.stepMove(pred, i, G.DT, spd);
+  if (!ps.dead) for (const i of pending) if (!i.skip) G.stepMove(pred, i, G.DT, spd, curMap);
   if (before) {
     const ex = before.x - pred.x, ey = before.y - pred.y, ez = before.z - pred.z;
     if (Math.hypot(ex, ey, ez) < 3) { renderOffset.x += ex; renderOffset.y += ey; renderOffset.z += ez; }
@@ -895,7 +1015,7 @@ socket.on('snap', s => {
   const seen = new Set();
   for (const ps of s.p) {
     seen.add(ps.id);
-    const ch = ensureChar(ps.id);
+    const ch = ensureChar(ps.id, ps.c);
     const respawned = ch.state && ch.state.dead && !ps.dead;
     if (respawned) ch.buf = [];
     // face the zone at spawn: take the server's facing on first sight and after each respawn
@@ -913,8 +1033,10 @@ socket.on('snap', s => {
   updatePickupObjs(s.pk || []);
   const top = [...s.p].sort((a, b) => b.sc - a.sc);
   leaderId = top.length && top[0].sc > 0 && !(top[1] && top[1].sc === top[0].sc) ? top[0].id : null;
-  if (s.zone.i !== zoneShownIdx) setZone(s.zone.i);
-  if (s.zone.next !== nextShownIdx) setNextZone(s.zone.next);
+  if (curMap.zones.length) {
+    if (s.zone.i !== zoneShownIdx) setZone(s.zone.i);
+    if (s.zone.next !== nextShownIdx) setNextZone(s.zone.next);
+  }
   for (const e of s.ev) handleEvent(e);
   if (prev && prev.phase === 'countdown' && s.phase === 'playing') { flashCenter('FIGHT!', 900); sfx.go(); }
   if (s.phase === 'countdown') {
@@ -944,11 +1066,12 @@ function handleEvent(e) {
   switch (e.t) {
     case 'hit':
       if (ch) ch.flashT = 0.12;
-      floatText(e.x, e.y, e.z, e.amt, e.by === myId ? 'mine' : '');
+      // only numbers that matter to you: your hits, hits on you, or fights right next to you
+      if (e.by === myId || e.id === myId || (pred && Math.hypot(e.x - pred.x, e.z - pred.z) < 12)) floatText(e.x, e.y, e.z, e.amt, e.by === myId ? 'mine' : '');
       if (e.id === myId) sfx.hurt(); else if (e.by === myId) sfx.hit();
       break;
     case 'txt':
-      if (ch && ch.state) floatText(ch.state.x, ch.state.y + 2.6, ch.state.z, e.txt, 'txt');
+      if (ch && ch.state && (!pred || Math.hypot(ch.state.x - pred.x, ch.state.z - pred.z) < 12)) floatText(ch.state.x, ch.state.y + 2.6, ch.state.z, e.txt, 'txt');
       break;
     case 'ko': {
       const lp = lobbyPlayer(e.id);
@@ -956,7 +1079,8 @@ function handleEvent(e) {
       burstFx(e.x, e.y, e.z, c, 14, 7);
       feed(e.by ? `${nameTag(e.by)} ⚔ ${nameTag(e.id)}` : e.cause === 'meteor' ? `☄ ${nameTag(e.id)} got hit by a meteor` : `${nameTag(e.id)} was knocked out`);
       if (e.by === myId) { sfx.ko(); flashCenter('+3 KO', 700); }
-      if (e.id === myId) sfx.hurt();
+      if (e.king && lp) flashCenter(`${G.TEAM_NAMES[lp.team]} King has fallen!`, 2500);
+      if (e.id === myId) { sfx.hurt(); if (document.pointerLockElement) document.exitPointerLock(); }
       break;
     }
     case 'atk':
@@ -981,12 +1105,17 @@ function handleEvent(e) {
     case 'sudden':
       flashCenter('SUDDEN DEATH', 1600);
       break;
+    case 'frenzy':
+      flashCenter('FINAL FRENZY!', 2200);
+      feed('🔥 Last 30 s: double damage, fast power-ups, 3 s respawns');
+      sfx.boom();
+      break;
     case 'meteors':
       flashCenter('METEOR SHOWER!', 2000);
       sfx.boom();
       break;
     case 'impact': {
-      const gy = G.groundHeight(e.x, e.z);
+      const gy = gh(e.x, e.z);
       sphereFx(e.x, gy, e.z, e.r * 1.3, 0xff5a1f);
       burstFx(e.x, gy - 0.9, e.z, 0x3b2a1c, 12, 9);
       ringFx(e.x, gy, e.z, e.r * 1.6, 0xff8c42, 0.6);
@@ -998,11 +1127,35 @@ function handleEvent(e) {
       const txt = { heal: '+50% HP', power: '2× DAMAGE', speed: 'SPEED UP' }[e.k];
       const c2 = chars.get(e.id);
       if (c2 && c2.state) floatText(c2.state.x, c2.state.y + 2.6, c2.state.z, txt, 'txt');
-      ringFx(e.x, G.groundHeight(e.x, e.z), e.z, 1.5, PICKUP_COLORS[e.k]);
+      ringFx(e.x, gh(e.x, e.z), e.z, 1.5, PICKUP_COLORS[e.k]);
       if (e.id === myId) sfx.power();
       break;
     }
   }
+}
+
+// ---------- death screen: countdown, class swap, team stats ----------
+let deathStatsAt = 0;
+function updateDeathScreen(s, me, lp) {
+  const show = me.dead && !lp.isKing && s.phase !== 'countdown';
+  $('#deathScreen').classList.toggle('hidden', !show);
+  if (!show) return;
+  const ktk = lobby.mode === 'ktk';
+  $('#deathTime').textContent = Math.max(0, Math.ceil(me.rt));
+  $('#deathWhere').textContent = ktk ? ' · at your 25% line' : '';
+  const nextCls = me.nc || me.c;
+  $('#deathClasses').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.cls === nextCls));
+  const now = performance.now();
+  if (now - deathStatsAt < 500) return; // refresh the table twice a second
+  deathStatsAt = now;
+  const team = isTeamMode();
+  $('#deathStatsTitle').textContent = team ? `${G.TEAM_NAMES[lp.team]} team` : 'Everyone';
+  $('#kdHead').classList.toggle('hidden', !ktk);
+  const rows = s.p.filter(p => { const l = lobbyPlayer(p.id); return l && !l.isKing && (!team || l.team === lp.team); }).sort((a, b) => b.dm - a.dm);
+  $('#deathStats').innerHTML = rows.map(p => {
+    const l = lobbyPlayer(p.id);
+    return `<tr class="${p.id === myId ? 'me' : ''}"><td>${esc(l.name)}</td><td>${G.CLASSES[p.c].name}</td><td>${p.ko}</td><td>${p.de}</td><td>${p.dm}</td>${ktk ? `<td>${p.kd}</td>` : ''}</tr>`;
+  }).join('');
 }
 
 // ---------- meteors ----------
@@ -1019,7 +1172,7 @@ function fitDisc(mesh, cx, cz, r, lift) {
   const pos = mesh.geometry.attributes.position, base = mesh.geometry.userData.base;
   for (let i = 0; i < pos.count; i++) {
     const x = base[i * 3] * r, z = base[i * 3 + 2] * r;
-    pos.setXYZ(i, cx + x, G.groundHeight(cx + x, cz + z) + lift, cz + z);
+    pos.setXYZ(i, cx + x, gh(cx + x, cz + z) + lift, cz + z);
   }
   pos.needsUpdate = true;
   mesh.geometry.computeBoundingSphere();
@@ -1046,7 +1199,7 @@ function updateMeteorObjs(list) {
     fitDisc(o.edge, m.x, m.z, Math.max(0.05, m.r), 0.09);
     if (m.f > 0) {
       o.rock.visible = true;
-      o.rock.position.set(m.x, G.groundHeight(m.x, m.z) + 30 * (1 - m.f / G.METEOR_FALL), m.z);
+      o.rock.position.set(m.x, gh(m.x, m.z) + 30 * (1 - m.f / G.METEOR_FALL), m.z);
     }
   }
   for (const [id, o] of meteorObjs) if (!seen.has(id)) { scene.remove(o.fill, o.edge, o.outline, o.rock); meteorObjs.delete(id); }
@@ -1093,7 +1246,7 @@ function updatePickupObjs(list) {
     if (!o) {
       o = makePickup(pk.k);
       o.userData.k = pk.k;
-      o.position.set(pk.x, G.groundHeight(pk.x, pk.z), pk.z);
+      o.position.set(pk.x, gh(pk.x, pk.z), pk.z);
       scene.add(o); pickupObjs.set(pk.id, o);
     }
   }
@@ -1169,7 +1322,7 @@ function aimAssist(dt) {
     const st = ch.state;
     if (id === myId || !st || st.dead || st.inv || !ch.model.group.visible) continue;
     const lp = lobbyPlayer(id);
-    if (lobby.mode === 'teams' && lp && lp.team === myTeam) continue;
+    if (isTeamMode() && lp && lp.team === myTeam) continue;
     const g = ch.model.group.position;
     if (Math.hypot(g.x - pred.x, g.z - pred.z) > maxD) continue;
     const from = ranged ? camera.position : new THREE.Vector3(pred.x, pred.y + 1.4, pred.z);
@@ -1261,7 +1414,7 @@ function frame() {
 
     // visibility: dead, invisible (rogue), spawn protection blink
     const lp = lobbyPlayer(id);
-    const ally = id === myId || (lobby.mode === 'teams' && lp && lp.team === myTeam);
+    const ally = id === myId || (isTeamMode() && lp && lp.team === myTeam);
     let visible = !st.dead, opacity = 1;
     // camera squeezed against a wall: fade your own character so it doesn't block the view
     if (id === myId && camDist < 3) opacity = 0.35;
@@ -1275,7 +1428,11 @@ function frame() {
     }
 
     // name tag
-    const showTag = visible && id !== myId;
+    // declutter: names only up close, just a health bar at mid range, nothing far away (Kings always shown)
+    const camD = Math.hypot(pos.x - camera.position.x, pos.z - camera.position.z);
+    const isKing = lp && lp.isKing;
+    const showTag = visible && id !== myId && (isKing || camD < 26);
+    ch.tag.classList.toggle('far', !isKing && camD > 13);
     if (showTag) {
       const p = screenPos(pos.x, pos.y + 2.5 * (G.CLASSES[lp ? lp.cls : 'gladiator'].size), pos.z);
       if (p.behind) ch.tag.style.display = 'none';
@@ -1285,7 +1442,7 @@ function frame() {
         ch.tag.style.left = '0'; ch.tag.style.top = '0';
         ch.tag.classList.toggle('ally', ally);
         ch.tag.querySelector('i').style.width = (st.hp / st.mhp * 100) + '%';
-        ch.tag.querySelector('.icons').textContent = (id === leaderId ? '★' : '') + (st.pw ? '⚔' : '') + (st.sp ? '⚡' : '');
+        ch.tag.querySelector('.icons').textContent = (isKing ? '👑' : '') + (id === leaderId ? '★' : '') + (st.pw ? '⚔' : '') + (st.sp ? '⚡' : '');
       }
     } else ch.tag.style.display = 'none';
   }
@@ -1303,6 +1460,11 @@ function frame() {
     if (nextZoneMesh) nextZoneMesh.material.opacity = 0.35 + Math.sin(now / 150) * 0.3;
   }
 
+  if (lobby && lobby.phase === 'draft') {
+    const left = Math.max(0, Math.ceil((draftDeadline - now) / 1000));
+    $('#draftTimer').textContent = left;
+    $('#draftTimer').parentElement.classList.toggle('hurry', left <= 3);
+  }
   updateCamera(dt);
   updateHud(now);
   renderer.render(scene, camera);
@@ -1330,7 +1492,7 @@ function updateCamera(dt) {
   const hit = raycaster.intersectObjects(obstacles, false)[0];
   if (hit) dist = Math.max(0.8, hit.distance - 0.3);
   // never let the camera swing back over the arena wall
-  const bx = G.ARENA.halfX + 0.3, bz = G.ARENA.halfZ + 0.3;
+  const bx = curMap.halfX + 0.3, bz = curMap.halfZ + 0.3;
   if (back.x > 1e-4) dist = Math.min(dist, (bx - target.x) / back.x);
   if (back.x < -1e-4) dist = Math.min(dist, (-bx - target.x) / back.x);
   if (back.z > 1e-4) dist = Math.min(dist, (bz - target.z) / back.z);
@@ -1338,7 +1500,7 @@ function updateCamera(dt) {
   dist = Math.max(0.8, dist);
   camDist = dist;
   const want = target.clone().addScaledVector(back, dist);
-  want.y = Math.max(want.y, G.groundHeight(want.x, want.z) + 0.3);
+  want.y = Math.max(want.y, gh(want.x, want.z) + 0.3);
   camera.position.copy(want);
   camera.lookAt(camera.position.clone().add(dir));
   if (shakeT > 0) {
@@ -1357,18 +1519,34 @@ function updateHud(now) {
   const c = G.CLASSES[lp.cls];
   $('#timer').textContent = s.phase === 'countdown' ? fmt(G.ROUND_TIME) : fmt(s.timer);
   $('#timer').classList.toggle('sudden', s.phase === 'sudden');
-  const z = G.ZONES[s.zone.i];
-  $('#zoneInfo').textContent = s.zone.next != null
-    ? `Zone moving to ${G.ZONES[s.zone.next].name} in ${Math.ceil(s.zone.t)}s`
+  const ktk = lobby.mode === 'ktk';
+  const z = curMap.zones[s.zone.i];
+  $('#zoneInfo').textContent = ktk
+    ? (s.fz ? '🔥 FINAL FRENZY — double damage' : 'Kill the enemy King · protect yours')
+    : s.zone.next != null ? `Zone moving to ${curMap.zones[s.zone.next].name} in ${Math.ceil(s.zone.t)}s`
     : s.zone.contested ? `${z.name} — CONTESTED` : z.name;
+  $('#timer').classList.toggle('frenzy', !!s.fz);
+  document.body.classList.toggle('ktk', ktk);
+  $('#frenzyTag').classList.toggle('hidden', !s.fz);
+  $('#kingBars').classList.toggle('hidden', !ktk);
+  if (ktk && s.kg) {
+    for (const [t, el, txt] of [['red', '#kbRed', '#kbRedHp'], ['blue', '#kbBlue', '#kbBlueHp']]) {
+      const k = s.kg[t];
+      $(el).style.width = k ? (k.hp / k.mhp * 100) + '%' : '0%';
+      $(txt).textContent = k ? k.hp : 0;
+    }
+  }
+  updateDeathScreen(s, me, lp);
 
   const teams = lobby.mode === 'teams';
+  if (ktk) $('#timer').textContent = fmt(s.phase === 'countdown' ? G.KTK_TIME : s.timer);
   $('#teamScores').classList.toggle('hidden', !teams);
   if (teams) {
     const inPlay = G.TEAMS.filter(t => lobby.players.some(p => p.team === t));
     $('#teamScores').innerHTML = inPlay.map(t => `<span class="ts ${t}">${s.ts[t] || 0}</span>`).join('<span class="ts-sep">vs</span>');
   }
-  const sorted = [...s.p].sort((a, b) => b.sc - a.sc);
+  // Kill the King: list your own team only (16 fighters is too many for the corner)
+  const sorted = [...s.p].filter(p => !ktk || ((lobbyPlayer(p.id) || {}).team === lp.team && !(lobbyPlayer(p.id) || {}).isKing)).sort((a, b) => b.sc - a.sc).slice(0, 8);
   $('#scoreList').innerHTML = sorted.map(p => {
     const l = lobbyPlayer(p.id);
     return `<li class="${p.id === myId ? 'me' : ''}"><span class="dot" style="background:${hex(ringColorFor(l))}"></span>${esc(l ? l.name : '?')}${p.id === leaderId ? ' <span class="star">★</span>' : ''}<span class="s">${p.sc}</span></li>`;
@@ -1379,12 +1557,13 @@ function updateHud(now) {
   if (s.phase === 'countdown') msg = Math.ceil(s.timer) || 'FIGHT!';
   else if (now < centerUntil) msg = $('#centerMsg').textContent;
   $('#centerMsg').textContent = msg;
-  $('#subMsg').textContent = me.dead ? `Knocked out — respawning in ${Math.ceil(me.rt)}…`
-    : s.phase === 'countdown' ? `You are the ${c.name}. Get to the glowing zone!`
+  $('#subMsg').textContent = me.dead ? ''
+    : s.phase === 'countdown' ? (ktk ? `You are a ${G.ROLE_NAMES[lp.role] || 'fighter'} (${c.name}). Kill their King!` : `You are the ${c.name}. Get to the glowing zone!`)
     : me.prot ? 'Spawn protection' : '';
 
   $('#meName').textContent = lp.name;
   $('#meClass').textContent = c.name;
+  $('#ablName').textContent = c.ability.name;
   $('#meScore').textContent = me.sc;
   $('#hpFill').style.width = (me.hp / me.mhp * 100) + '%';
   $('#hpFill').style.background = me.hp / me.mhp < 0.3 ? 'linear-gradient(90deg,#e63946,#ff6b5b)' : '';
@@ -1397,8 +1576,15 @@ function updateHud(now) {
   $('#lockHint').classList.toggle('hidden', !!document.pointerLockElement || isTouch);
 
   // arrow toward the zone when it's off-screen
-  const target = s.zone.next != null && s.zone.t < 3 ? G.ZONES[s.zone.next] : z;
-  const p = screenPos(target.x, G.groundHeight(target.x, target.z) + 1, target.z);
+  let target = !ktk && (s.zone.next != null && s.zone.t < 3 ? curMap.zones[s.zone.next] : z);
+  if (ktk) {
+    // point at the enemy King
+    const foe = s.kg && s.kg[lp.team === 'red' ? 'blue' : 'red'];
+    const fc = foe && chars.get(foe.id);
+    target = fc && fc.state && !fc.state.dead ? { x: fc.state.x, z: fc.state.z } : null;
+  }
+  if (!target) { $('#zoneArrow').style.display = 'none'; return; }
+  const p = screenPos(target.x, gh(target.x, target.z) + 1, target.z);
   const arrow = $('#zoneArrow');
   const off = p.behind || p.x < 40 || p.x > innerWidth - 40 || p.y < 40 || p.y > innerHeight - 40;
   if (off && pred) {
@@ -1411,5 +1597,6 @@ function updateHud(now) {
   } else arrow.style.display = 'none';
 }
 
+setMap('arena');
 showScreen('home');
 requestAnimationFrame(frame);

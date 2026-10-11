@@ -49,7 +49,7 @@ function newPlayer(name, opts = {}) {
     yaw: 0, pitch: 0, moveX: 0, moveZ: 0,
     hp: 100, maxHp: 100, dead: false, respawnT: 0, protT: 0, invulnT: 0, invisT: 0, shieldT: 0,
     lungeT: 0, lungeHit: false, atkCd: 0, ablCd: 0, lastHurt: -99,
-    aim: null, powT: 0, spdT: 0, pity: 0, dryDeaths: 0,
+    aim: null, powT: 0, spdT: 0, pity: 0, dryDeaths: 0, dmgDone: 0, kingDmg: 0, nextCls: null,
     inputs: [], lastSeq: 0, lastInputAt: 0,
     bot: opts.isBot ? { strafeAng: Math.random() * 6.28, strafeT: 0, lastX: 0, lastZ: 0, checkT: 0, unstickT: 0, ux: 0, uz: 0,
       targetId: null, seenT: 0, aimErr: 0, aimGoal: 0, aimT: 0, swingAt: null } : null,
@@ -57,6 +57,10 @@ function newPlayer(name, opts = {}) {
 }
 
 function humans(room) { return [...room.players.values()].filter(p => !p.isBot); }
+const teamMode = room => room.mode === 'teams' || room.mode === 'ktk';
+const otherTeam = t => (t === 'red' ? 'blue' : 'red');
+const kingOf = (room, team) => [...room.players.values()].find(q => q.isKing && q.team === team && q.inMatch);
+const seatCount = room => [...room.players.values()].filter(q => !q.temp).length;
 
 function assignColor(room, p) {
   const used = new Set([...room.players.values()].filter(q => q !== p).map(q => q.colorIdx));
@@ -65,7 +69,7 @@ function assignColor(room, p) {
 
 function smallerTeam(room, except) {
   let red = 0, blue = 0;
-  for (const q of room.players.values()) if (q !== except) q.team === 'red' ? red++ : blue++;
+  for (const q of room.players.values()) if (q !== except && !q.temp) q.team === 'red' ? red++ : blue++;
   return red <= blue ? 'red' : 'blue';
 }
 
@@ -77,9 +81,11 @@ function rebalanceTeams(room) {
 function lobbyState(room) {
   return {
     code: room.code, hostId: room.hostId, mode: room.mode, botLevel: room.botLevel, phase: room.phase, results: room.results,
+    map: room.map.key,
+    draft: room.phase === 'draft' ? room.draft : null, draftLeft: room.phase === 'draft' ? room.draftT : 0,
     players: [...room.players.values()].map(p => ({
       id: p.id, name: p.name, isBot: p.isBot, cls: p.cls, team: p.team, ready: p.ready,
-      connected: p.connected, colorIdx: p.colorIdx,
+      connected: p.connected, colorIdx: p.colorIdx, role: p.role || null, isKing: !!p.isKing, temp: !!p.temp,
     })),
   };
 }
@@ -103,60 +109,158 @@ function removePlayer(room, p) {
 function initSim(room, p) {
   const c = G.CLASSES[p.cls];
   p.maxHp = c.hp; p.hp = c.hp;
-  p.score = 0; p.kos = 0; p.deaths = 0; p.pity = 0; p.dryDeaths = 0;
+  p.score = 0; p.kos = 0; p.deaths = 0; p.pity = 0; p.dryDeaths = 0; p.dmgDone = 0; p.kingDmg = 0; p.nextCls = null;
   p.inMatch = true; p.inputs = [];
   spawn(room, p, true);
 }
 
 function spawn(room, p, initial) {
-  const z = G.ZONES[room.zoneIdx];
-  const taken = [...room.players.values()].filter(q => q !== p && q.inMatch && !q.dead);
-  let best = G.SPAWNS[0], bestScore = -Infinity;
-  G.SPAWNS.forEach((s, i) => {
-    let score = Math.hypot(s.x - z.x, s.z - z.z);
-    for (const q of taken) if (Math.hypot(q.x - s.x, q.z - s.z) < 2) score -= 100;
-    if (initial) score = -i + Math.random() * 0.5 - (taken.some(q => Math.hypot(q.x - s.x, q.z - s.z) < 2) ? 100 : 0);
-    if (score > bestScore) { bestScore = score; best = s; }
-  });
+  if (p.nextCls && G.CLASS_ORDER.includes(p.nextCls)) { p.cls = p.nextCls; p.maxHp = G.CLASSES[p.cls].hp; }
+  p.nextCls = null;
+  let pos, yaw;
+  if (room.mode === 'ktk') {
+    // each role spawns on its own line of the team's half; Red defends x < 0
+    const side = p.team === 'red' ? -1 : 1;
+    const line = initial || p.isKing ? G.ROLE_SPAWN[p.role || 'M'] : G.RESPAWN_LINE;
+    pos = { x: side * line, y: 0, z: initial ? (p.lane || 0) : (Math.random() * 2 - 1) * 10 };
+    G.resolveCollision(pos, room.map);
+    yaw = side * Math.PI / 2; // face the other team
+  } else {
+    const z = room.map.zones[room.zoneIdx];
+    const taken = [...room.players.values()].filter(q => q !== p && q.inMatch && !q.dead);
+    let best = room.map.spawns[0], bestScore = -Infinity;
+    room.map.spawns.forEach((s, i) => {
+      let score = Math.hypot(s.x - z.x, s.z - z.z);
+      for (const q of taken) if (Math.hypot(q.x - s.x, q.z - s.z) < 2) score -= 100;
+      if (initial) score = -i + Math.random() * 0.5 - (taken.some(q => Math.hypot(q.x - s.x, q.z - s.z) < 2) ? 100 : 0);
+      if (score > bestScore) { bestScore = score; best = s; }
+    });
+    pos = best;
+    yaw = Math.atan2(-(z.x - best.x), -(z.z - best.z));
+  }
   Object.assign(p, {
-    x: best.x, z: best.z, y: G.groundHeight(best.x, best.z), vy: 0, kx: 0, kz: 0,
+    x: pos.x, z: pos.z, y: G.groundHeight(pos.x, pos.z, room.map), vy: 0, kx: 0, kz: 0,
     dashT: 0, slowT: 0, hp: p.maxHp, dead: false, respawnT: 0, protT: G.SPAWN_PROTECT,
     invulnT: 0, invisT: 0, shieldT: 0, lungeT: 0, atkCd: 0, ablCd: 0, powT: 0, spdT: 0,
   });
-  p.yaw = Math.atan2(-(z.x - p.x), -(z.z - p.z));
+  p.yaw = yaw;
 }
 
 function startMatch(room) {
+  room.map = G.mapFor(room.mode);
+  if (room.mode === 'ktk') return startDraft(room);
+  for (const p of room.players.values()) { p.role = null; p.lane = 0; }
+  beginCountdown(room);
+}
+
+function beginCountdown(room) {
   room.phase = 'countdown';
   room.timer = G.COUNTDOWN_TIME;
   room.time = 0;
   room.zoneIdx = 0; room.nextZoneIdx = null; room.zoneT = G.ZONE_PERIOD;
   room.teamScore = Object.fromEntries(G.TEAMS.map(t => [t, 0]));
   room.meteors = []; room.meteorT = 0; room.meteorAnnounced = false;
-  room.pickups = initPickups();
+  room.pickups = initPickups(room);
   room.projectiles = []; room.events = []; room.results = null; room.suddenIds = null;
-  room.contested = false; room.holder = null;
-  let i = 0;
-  for (const p of room.players.values()) {
+  room.contested = false; room.holder = null; room.kingDown = null; room.frenzy = false;
+  for (const p of [...room.players.values()]) {
     if (!p.connected) { room.players.delete(p.id); continue; }
     initSim(room, p);
-    i++;
   }
   broadcastLobby(room);
 }
 
+// ---------- Kill the King: draft ----------
+// Classes the game picks for bot spots nobody chose, by role
+const ROLE_CLASSES = {
+  D: ['tank', 'paladin', 'lancer', 'mage'],
+  M: ['gladiator', 'mage', 'bomber', 'paladin', 'lancer'],
+  A: ['rogue', 'archer', 'gladiator', 'bomber'],
+};
+const pickFor = role => ROLE_CLASSES[role][(Math.random() * ROLE_CLASSES[role].length) | 0];
+
+// Build the 8 spots for a line-up, keeping earlier choices for spots that still exist
+function makeSlots(formation, old = []) {
+  const slots = [];
+  ['D', 'M', 'A'].forEach((role, ri) => {
+    const prev = old.filter(sl => sl.role === role);
+    for (let i = 0; i < formation[ri]; i++) {
+      const o = prev[i];
+      slots.push({ role, cls: o ? o.cls : pickFor(role), humanId: o ? o.humanId : null });
+    }
+  });
+  return slots;
+}
+
+const teamHumans = (room, team) => [...room.players.values()].filter(p => !p.isBot && p.connected && p.team === team);
+
+function assignFreeSlot(draft, p, prefer = ['M', 'A', 'D']) {
+  for (const role of prefer) {
+    const sl = draft.slots.find(x => x.role === role && !x.humanId);
+    if (sl) { sl.humanId = p.id; sl.cls = p.cls; return true; }
+  }
+  return false;
+}
+
+function startDraft(room) {
+  room.phase = 'draft'; room.draftT = G.DRAFT_TIME; room.results = null;
+  for (const p of [...room.players.values()]) if (p.isBot || !p.connected) room.players.delete(p.id);
+  room.draft = {};
+  for (const team of ['red', 'blue']) {
+    const d = room.draft[team] = { formation: [3, 3, 2], slots: makeSlots([3, 3, 2]) };
+    for (const p of teamHumans(room, team)) assignFreeSlot(d, p);
+  }
+  broadcastLobby(room);
+}
+
+// Draft is over: humans take their spots, bots fill the rest, each team gets a King
+function finalizeDraft(room) {
+  for (const team of ['red', 'blue']) {
+    const d = room.draft[team];
+    for (const sl of d.slots) {
+      const h = sl.humanId && room.players.get(sl.humanId);
+      if (!h || !h.connected) sl.humanId = null;
+    }
+    for (const p of teamHumans(room, team)) if (!d.slots.some(sl => sl.humanId === p.id)) assignFreeSlot(d, p);
+    const idx = { D: 0, M: 0, A: 0 }, count = { D: d.formation[0], M: d.formation[1], A: d.formation[2] };
+    for (const sl of d.slots) {
+      const i = idx[sl.role]++, n = count[sl.role];
+      const lane = n > 1 ? -10 + 20 * i / (n - 1) : 0; // spread each line across the width
+      let p;
+      if (sl.humanId) { p = room.players.get(sl.humanId); p.cls = sl.cls; }
+      else {
+        p = newPlayer(`${G.TEAM_NAMES[team]} ${sl.role}${i + 1}`, { isBot: true, cls: sl.cls });
+        p.temp = true; p.team = team;
+        room.players.set(p.id, p);
+      }
+      p.role = sl.role; p.lane = lane;
+    }
+    const king = newPlayer(G.TEAM_NAMES[team] + ' King', { isBot: true, cls: 'king' });
+    Object.assign(king, { temp: true, isKing: true, team, role: 'K', lane: 0 });
+    room.players.set(king.id, king);
+  }
+  room.draft = null;
+  beginCountdown(room);
+}
+
 function endMatch(room, winner) {
   room.phase = 'ended';
-  const list = [...room.players.values()].filter(p => p.inMatch).map(p => ({
-    id: p.id, name: p.name, cls: p.cls, team: p.team, isBot: p.isBot,
-    score: Math.floor(p.score), kos: p.kos, deaths: p.deaths,
+  const list = [...room.players.values()].filter(p => p.inMatch && !p.isKing).map(p => ({
+    id: p.id, name: p.name, cls: p.cls, team: p.team, isBot: p.isBot, role: p.role || null,
+    score: Math.floor(p.score), kos: p.kos, deaths: p.deaths, dmg: Math.round(p.dmgDone), kingDmg: Math.round(p.kingDmg),
   })).sort((a, b) => b.score - a.score || b.kos - a.kos);
+  const kingHp = {};
+  if (room.mode === 'ktk') for (const t of ['red', 'blue']) { const k = kingOf(room, t); kingHp[t] = k ? Math.ceil(Math.max(0, k.hp)) : 0; }
   room.results = {
     mode: room.mode, winner, players: list,
     teamScore: Object.fromEntries(Object.entries(room.teamScore).map(([k, v]) => [k, Math.floor(v)])),
-    teams: [...new Set(list.map(p => p.team))],
+    teams: [...new Set(list.map(p => p.team))], kingHp,
   };
-  for (const p of room.players.values()) { p.inMatch = false; if (!p.isBot) p.ready = false; }
+  for (const p of [...room.players.values()]) {
+    if (p.temp) { room.players.delete(p.id); continue; }
+    p.inMatch = false; p.role = null;
+    if (!p.isBot) p.ready = false;
+  }
   broadcastLobby(room);
 }
 
@@ -168,7 +272,7 @@ function enemiesOf(room, p) {
   const out = [];
   for (const q of room.players.values()) {
     if (q === p || !q.inMatch || q.dead) continue;
-    if (room.mode === 'teams' && q.team === p.team) continue;
+    if (teamMode(room) && q.team === p.team) continue;
     out.push(q);
   }
   return out;
@@ -176,7 +280,7 @@ function enemiesOf(room, p) {
 
 function alliesOf(room, p) {
   return [...room.players.values()].filter(q => q.inMatch && !q.dead &&
-    (q === p || (room.mode === 'teams' && q.team === p.team)));
+    (q === p || (teamMode(room) && q.team === p.team)));
 }
 
 function addPoints(room, p, pts) {
@@ -192,18 +296,22 @@ function damage(room, src, e, amt, kbx = 0, kbz = 0) {
   }
   amt *= 1 - 0.1 * e.pity;
   if (e.shieldT > 0) amt *= 0.5;
+  if (room.frenzy) amt *= 2; // final 30 s of Kill the King
   amt = Math.max(1, Math.round(amt));
   e.hp -= amt;
   e.lastHurt = room.time;
   const res = e.cls === 'tank' ? 0.7 : 1;
   e.kx += kbx * res; e.kz += kbz * res;
   ev(room, { t: 'hit', id: e.id, by: src ? src.id : null, amt, x: e.x, y: e.y + 2, z: e.z });
+  if (src && src !== e) { src.dmgDone += amt; if (e.isKing) src.kingDmg += amt; }
+  if (e.isKing && src) src.score += amt / 10; // chipping the King is worth points
   if (e.hp <= 0) knockOut(room, src, e);
   return true;
 }
 
 function knockOut(room, src, e, cause) {
-  e.hp = 0; e.dead = true; e.respawnT = G.RESPAWN_TIME; e.deaths++;
+  e.hp = 0; e.dead = true; e.deaths++;
+  e.respawnT = room.mode !== 'ktk' ? G.RESPAWN_TIME : room.frenzy ? G.FRENZY_RESPAWN : G.KTK_RESPAWN;
   e.invisT = 0; e.dashT = 0; e.kx = 0; e.kz = 0; e.lungeT = 0; e.powT = 0; e.spdT = 0;
   // Hidden comeback boost: 3+ deaths in a row with no kill ramps it up, one level per death.
   e.dryDeaths++;
@@ -214,7 +322,8 @@ function knockOut(room, src, e, cause) {
     addPoints(room, src, G.KO_POINTS);
     if (src.cls === 'gladiator' && !src.dead) src.hp = Math.min(src.maxHp, src.hp + 30);
   }
-  ev(room, { t: 'ko', id: e.id, by: src ? src.id : null, x: e.x, y: e.y, z: e.z, cause });
+  if (e.isKing) { room.kingDown = e.team; e.respawnT = Infinity; }
+  ev(room, { t: 'ko', id: e.id, by: src ? src.id : null, x: e.x, y: e.y, z: e.z, cause, king: !!e.isKing });
 }
 
 function aoe(room, p, x, z, r, dmg, kb, slow = 0) {
@@ -342,10 +451,10 @@ function doAbility(room, p) {
       for (let i = 0; i < 12; i++) {
         const tx = s.x + f.x * 0.5, tz = s.z + f.z * 0.5;
         s.x = tx; s.z = tz;
-        G.resolveCollision(s);
+        G.resolveCollision(s, room.map);
         if (Math.hypot(s.x - tx, s.z - tz) > 0.2) break;
       }
-      p.x = s.x; p.z = s.z; p.y = Math.max(p.y, G.groundHeight(p.x, p.z));
+      p.x = s.x; p.z = s.z; p.y = Math.max(p.y, G.groundHeight(p.x, p.z, room.map));
       p.invisT = 2.5;
       ev(room, { t: 'abl', id: p.id, a: 'shadow2', x: p.x, y: p.y, z: p.z });
       break;
@@ -420,8 +529,8 @@ function updateProjectiles(room, dt) {
           }
         }
       }
-      if (!done && G.isSolid(pr.x, pr.y, pr.z)) {
-        if (pr.splash) explode(room, pr, owner, pr.x, Math.max(pr.y, G.groundHeight(pr.x, pr.z)), pr.z);
+      if (!done && G.isSolid(pr.x, pr.y, pr.z, room.map)) {
+        if (pr.splash) explode(room, pr, owner, pr.x, Math.max(pr.y, G.groundHeight(pr.x, pr.z, room.map)), pr.z);
         done = true;
       }
     }
@@ -454,17 +563,48 @@ function botThink(room, p) {
   const inp = { mx: 0, mz: 0, jump: false, atk: false, abl: false, yaw: p.yaw, pitch: -0.1 };
   if (p.dead || room.phase === 'countdown') return inp;
 
-  const zone = (room.nextZoneIdx != null && room.zoneT < 3) ? G.ZONES[room.nextZoneIdx] : G.ZONES[room.zoneIdx];
-  let e = null, d = Infinity;
-  for (const q of enemiesOf(room, p)) {
-    if (q.invisT > 0) continue;
-    const dd = Math.hypot(q.x - p.x, q.z - p.z);
-    if (dd < d) { d = dd; e = q; }
-  }
+  if (p.isKing) return kingThink(room, p, inp);
   const ranged = c.attack.type !== 'melee';
-  const engage = ranged ? Math.min(c.attack.range, 18) : 7;
-  const zd = Math.hypot(zone.x - p.x, zone.z - p.z);
-  let tx = zone.x, tz = zone.z;
+  let engage = ranged ? Math.min(c.attack.range, 18) : 7;
+  // goal = where this bot wants to be; holdR = how close counts as "there"
+  let goal, holdR, e = null, d = Infinity;
+  const visible = enemiesOf(room, p).filter(q => q.invisT <= 0);
+  const nearestTo = (x, z, maxD) => {
+    let best = null, bd = maxD;
+    for (const q of visible) { const dd = Math.hypot(q.x - x, q.z - z); if (dd < bd) { bd = dd; best = q; } }
+    return best;
+  };
+  if (room.mode === 'ktk') {
+    const fwd = p.team === 'red' ? 1 : -1;
+    const own = kingOf(room, p.team), foe = kingOf(room, otherTeam(p.team));
+    holdR = 2.5;
+    if (p.role === 'D') {
+      // guard a spot in front of our King and chase anyone who gets close to him
+      const kx = own ? own.x : -fwd * G.KING_HOME;
+      goal = { x: kx + fwd * 6, z: (p.lane || 0) * 0.6 };
+      e = own ? nearestTo(own.x, own.z, 16) : null;
+      engage = 30;
+    } else if (p.role === 'A') {
+      // push for the enemy King; fight whoever blocks the way
+      goal = foe && !foe.dead ? { x: foe.x, z: foe.z } : { x: fwd * G.KING_HOME, z: 0 };
+      e = foe && !foe.dead && Math.hypot(foe.x - p.x, foe.z - p.z) < 14 ? foe : nearestTo(p.x, p.z, 6);
+    } else {
+      // midfield: hold the middle, take on anyone nearby
+      goal = { x: -fwd * 3, z: (p.lane || 0) };
+      e = nearestTo(p.x, p.z, 13);
+      engage = 13;
+    }
+    // bots respect their zone (humans don't)
+    if (p.role === 'D' && goal.x * fwd > -1) goal.x = -fwd;
+    if (p.role === 'A' && goal.x * fwd < -G.ATTACKER_LIMIT + 1) goal.x = (-G.ATTACKER_LIMIT + 1) * fwd;
+  } else {
+    goal = (room.nextZoneIdx != null && room.zoneT < 3) ? room.map.zones[room.nextZoneIdx] : room.map.zones[room.zoneIdx];
+    holdR = G.ZONE_RADIUS - 1.2;
+    e = nearestTo(p.x, p.z, Infinity);
+  }
+  if (e) d = Math.hypot(e.x - p.x, e.z - p.z);
+  const zd = Math.hypot(goal.x - p.x, goal.z - p.z);
+  let tx = goal.x, tz = goal.z;
 
   // reaction time: a bot has to "notice" a new target before it attacks
   if (!e || d >= engage) { b.targetId = null; b.seenT = 0; }
@@ -479,7 +619,7 @@ function botThink(room, p) {
 
   b.strafeT -= dt;
   if (b.strafeT <= 0) { b.strafeAng = Math.random() * Math.PI * 2; b.strafeT = 1 + Math.random(); }
-  if (zd < G.ZONE_RADIUS - 1.2) { tx = p.x + Math.cos(b.strafeAng) * 2; tz = p.z + Math.sin(b.strafeAng) * 2; }
+  if (zd < holdR) { tx = p.x + Math.cos(b.strafeAng) * 2; tz = p.z + Math.sin(b.strafeAng) * 2; }
 
   if (e && d < engage) {
     // track the target's velocity so better bots can aim ahead of a moving player
@@ -504,7 +644,7 @@ function botThink(room, p) {
       if (reacted && d < c.attack.range) inp.atk = true;
     } else {
       // close in, but stop at arm's length instead of standing inside the target
-      if (d < 6 || zd < G.ZONE_RADIUS + 3) {
+      if (d < 6 || zd < holdR + 4 || room.mode === 'ktk') {
         const keep = Math.min(1.3, c.attack.range * 0.6);
         tx = e.x + (p.x - e.x) / (d || 1) * keep; tz = e.z + (p.z - e.z) / (d || 1) * keep;
       }
@@ -570,6 +710,47 @@ function botThink(room, p) {
   return inp;
 }
 
+// The King: wanders slowly around his base, swings at anyone in reach, backs away from threats.
+function kingThink(room, p, inp) {
+  const b = p.bot, fwd = p.team === 'red' ? 1 : -1, hx = -fwd * G.KING_HOME;
+  let e = null, d = Infinity;
+  for (const q of enemiesOf(room, p)) {
+    if (q.invisT > 0) continue;
+    const dd = Math.hypot(q.x - p.x, q.z - p.z);
+    if (dd < d) { d = dd; e = q; }
+  }
+  b.strafeT -= G.DT;
+  if (b.strafeT <= 0 || b.wx == null) { b.wx = hx + (Math.random() * 2 - 1) * 4; b.wz = (Math.random() * 2 - 1) * 5; b.strafeT = 3 + Math.random() * 2; }
+  let tx = b.wx, tz = b.wz;
+  if (e && d < 3.2) {
+    tx = p.x; tz = p.z;
+    inp.yaw = Math.atan2(-(e.x - p.x), -(e.z - p.z));
+    if (p.atkCd <= 0) inp.atk = true;
+  } else if (e && d < 9) {
+    tx = hx - fwd * 2; tz = p.z * 0.5; // retreat toward the back of the base
+    inp.yaw = Math.atan2(-(e.x - p.x), -(e.z - p.z));
+  }
+  let mx = tx - p.x, mz = tz - p.z;
+  const m = Math.hypot(mx, mz);
+  if (m > 0.5) { mx /= m; mz /= m; } else { mx = 0; mz = 0; }
+  inp.mx = mx; inp.mz = mz;
+  if (!(e && d < 9) && m > 0.5) inp.yaw = Math.atan2(-mx, -mz);
+  return inp;
+}
+
+// Kill the King bots stay in their zone: defenders never cross halfway, attackers never
+// drop into the deepest 25% of their own half, the King stays near his base. Humans are free.
+function clampBotRole(room, p) {
+  if (room.mode !== 'ktk' || !p.isBot || !p.role) return;
+  const fwd = p.team === 'red' ? 1 : -1;
+  if (p.role === 'D' && p.x * fwd > 0) p.x = 0;
+  if (p.role === 'A' && p.x * fwd < -G.ATTACKER_LIMIT) p.x = -G.ATTACKER_LIMIT * fwd;
+  if (p.isKing) {
+    const hx = -fwd * G.KING_HOME, dx = p.x - hx, dz = p.z, dd = Math.hypot(dx, dz);
+    if (dd > 8) { p.x = hx + dx / dd * 8; p.z = dz / dd * 8; }
+  }
+}
+
 // ---------- tick ----------
 
 function applyInput(room, p, inp, frozen) {
@@ -582,7 +763,8 @@ function applyInput(room, p, inp, frozen) {
   if (Number.isFinite(inp.pitch)) p.pitch = Math.max(-1.2, Math.min(1.2, inp.pitch));
   if (Number.isFinite(inp.ax) && Number.isFinite(inp.ay) && Number.isFinite(inp.az)) p.aim = { x: inp.ax, y: inp.ay, z: inp.az };
   p.moveX = mx; p.moveZ = mz;
-  if (!p.dead) G.stepMove(p, { mx, mz, jump: !frozen && !!inp.jump }, G.DT, c.speed * (p.spdT > 0 ? G.SPEED_BUFF : 1));
+  if (!p.dead) G.stepMove(p, { mx, mz, jump: !frozen && !!inp.jump }, G.DT, c.speed * (p.spdT > 0 ? G.SPEED_BUFF : 1), room.map);
+  clampBotRole(room, p);
   if (frozen || p.dead || p.protT > 0) return;
   if (inp.atk && p.atkCd <= 0) doAttack(room, p);
   if (inp.abl && p.ablCd <= 0) doAbility(room, p);
@@ -591,6 +773,11 @@ function applyInput(room, p, inp, frozen) {
 function tickRoom(room) {
   const dt = G.DT;
   room.events = [];
+  if (room.phase === 'draft') {
+    room.draftT -= dt;
+    if (room.draftT <= 0) finalizeDraft(room);
+    return;
+  }
   const inMatch = room.phase === 'countdown' || room.phase === 'playing' || room.phase === 'sudden';
   if (!inMatch) return;
   room.time += dt;
@@ -599,21 +786,30 @@ function tickRoom(room) {
   if (frozen) {
     room.timer -= dt;
     if (room.timer <= 0) {
-      room.phase = 'playing'; room.timer = ROUND_TIME;
+      room.phase = 'playing';
+      room.timer = room.mode === 'ktk' ? (Number(process.env.ROUND_TIME) || G.KTK_TIME) : ROUND_TIME;
       for (const p of room.players.values()) p.protT = 0;
       broadcastLobby(room);
     }
   } else {
     room.timer -= dt;
-    room.zoneT -= dt;
-    if (room.zoneT <= G.ZONE_WARN && room.nextZoneIdx == null) {
-      let n;
-      do n = (Math.random() * G.ZONES.length) | 0; while (n === room.zoneIdx);
-      room.nextZoneIdx = n;
+    if (room.mode === 'ktk' && room.phase === 'playing' && room.timer <= G.FRENZY_TIME && !room.frenzy) {
+      room.frenzy = true;
+      ev(room, { t: 'frenzy' });
+      // anyone already waiting gets the short respawn too
+      for (const p of room.players.values()) if (p.dead && !p.isKing) p.respawnT = Math.min(p.respawnT, G.FRENZY_RESPAWN);
     }
-    if (room.zoneT <= 0) {
-      room.zoneIdx = room.nextZoneIdx; room.nextZoneIdx = null; room.zoneT = G.ZONE_PERIOD;
-      ev(room, { t: 'zone' });
+    if (room.mode !== 'ktk') {
+      room.zoneT -= dt;
+      if (room.zoneT <= G.ZONE_WARN && room.nextZoneIdx == null) {
+        let n;
+        do n = (Math.random() * room.map.zones.length) | 0; while (n === room.zoneIdx);
+        room.nextZoneIdx = n;
+      }
+      if (room.zoneT <= 0) {
+        room.zoneIdx = room.nextZoneIdx; room.nextZoneIdx = null; room.zoneT = G.ZONE_PERIOD;
+        ev(room, { t: 'zone' });
+      }
     }
   }
 
@@ -621,7 +817,7 @@ function tickRoom(room) {
   for (const p of room.players.values()) {
     if (!p.inMatch) continue;
     for (const k of ['atkCd', 'ablCd', 'protT', 'invulnT', 'invisT', 'shieldT', 'powT', 'spdT']) if (p[k] > 0) p[k] = Math.max(0, p[k] - dt);
-    if (p.dead && !frozen) {
+    if (p.dead && !frozen && !p.isKing) {
       p.respawnT -= dt;
       if (p.respawnT <= 0) { spawn(room, p, false); ev(room, { t: 'spawn', id: p.id }); }
     }
@@ -672,7 +868,7 @@ function updateMeteors(room, dt) {
       room.meteorT = G.METEOR_INTERVAL;
       room.meteors.push({
         id: nextId++, t: 0, r: 0, maxR: 2.2 + Math.random() * 1.5,
-        x: (Math.random() * 2 - 1) * (G.ARENA.halfX - 2), z: (Math.random() * 2 - 1) * (G.ARENA.halfZ - 2),
+        x: (Math.random() * 2 - 1) * (room.map.halfX - 2), z: (Math.random() * 2 - 1) * (room.map.halfZ - 2),
       });
     }
   }
@@ -682,7 +878,7 @@ function updateMeteors(room, dt) {
     if (m.t < G.METEOR_GROW + G.METEOR_FALL) return true;
     ev(room, { t: 'impact', x: m.x, z: m.z, r: m.maxR });
     for (const p of room.players.values()) {
-      if (p.inMatch && !p.dead && p.protT <= 0 && Math.hypot(p.x - m.x, p.z - m.z) < m.maxR + 0.25) knockOut(room, null, p, 'meteor');
+      if (p.inMatch && !p.dead && !p.isKing && p.protT <= 0 && Math.hypot(p.x - m.x, p.z - m.z) < m.maxR + 0.25) knockOut(room, null, p, 'meteor');
     }
     return false;
   });
@@ -690,20 +886,20 @@ function updateMeteors(room, dt) {
 
 const randKind = () => G.PICKUP_KINDS[(Math.random() * G.PICKUP_KINDS.length) | 0];
 
-function initPickups() {
-  return G.PICKUP_SPOTS.map((s, i) => ({ id: nextId++, x: s.x, z: s.z, k: randKind(), active: false, respawnT: 4 + i * 3 }));
+function initPickups(room) {
+  return room.map.pickups.map((s, i) => ({ id: nextId++, x: s.x, z: s.z, k: randKind(), active: false, respawnT: 4 + i * 3 }));
 }
 
 function updatePickups(room, dt) {
   for (const pk of room.pickups) {
     if (!pk.active) {
-      pk.respawnT -= dt;
+      pk.respawnT -= dt * (room.frenzy ? G.FRENZY_PICKUP_RATE : 1);
       if (pk.respawnT <= 0) { pk.active = true; pk.k = randKind(); }
       continue;
     }
     for (const p of room.players.values()) {
       if (!p.inMatch || p.dead) continue;
-      if (Math.hypot(p.x - pk.x, p.z - pk.z) > 1.2 || Math.abs(p.y - G.groundHeight(pk.x, pk.z)) > 1.8) continue;
+      if (p.isKing || Math.hypot(p.x - pk.x, p.z - pk.z) > 1.2 || Math.abs(p.y - G.groundHeight(pk.x, pk.z, room.map)) > 1.8) continue;
       if (pk.k === 'heal') p.hp = Math.min(p.maxHp, p.hp + p.maxHp * 0.5);
       if (pk.k === 'power') p.powT = G.BUFF_TIME;
       if (pk.k === 'speed') p.spdT = G.BUFF_TIME;
@@ -715,7 +911,8 @@ function updatePickups(room, dt) {
 }
 
 function scoreZone(room, dt) {
-  const z = G.ZONES[room.zoneIdx];
+  if (room.mode === 'ktk') return;
+  const z = room.map.zones[room.zoneIdx];
   const occ = [...room.players.values()].filter(p => p.inMatch && !p.dead &&
     Math.hypot(p.x - z.x, p.z - z.z) < G.ZONE_RADIUS);
   for (const p of occ) if (p.cls === 'mage') p.hp = Math.min(p.maxHp, p.hp + 2 * dt);
@@ -749,6 +946,16 @@ function leaders(room) {
 }
 
 function checkEnd(room) {
+  if (room.mode === 'ktk') {
+    if (room.kingDown) return endMatch(room, otherTeam(room.kingDown));
+    if (room.phase === 'playing' && room.timer <= 0) {
+      // time's up: the King with more health left wins
+      const r = kingOf(room, 'red'), b = kingOf(room, 'blue');
+      const rf = r ? r.hp / r.maxHp : 0, bf = b ? b.hp / b.maxHp : 0;
+      return endMatch(room, Math.abs(rf - bf) < 0.005 ? 'draw' : rf > bf ? 'red' : 'blue');
+    }
+    return;
+  }
   if (room.phase === 'playing' && room.timer <= 0) {
     const l = leaders(room);
     if (l.length === 1) return endMatch(room, l[0]);
@@ -766,7 +973,7 @@ const r2 = v => Math.round(v * 100) / 100;
 
 function sendSnapshot(room) {
   const snap = {
-    phase: room.phase, timer: r2(Math.max(0, room.timer)),
+    phase: room.phase, timer: r2(Math.max(0, room.timer)), fz: !!room.frenzy,
     zone: { i: room.zoneIdx, next: room.nextZoneIdx, t: r2(room.zoneT), contested: room.contested, holder: room.holder },
     ts: Object.fromEntries(Object.entries(room.teamScore).map(([k, v]) => [k, Math.floor(v)])),
     mt: room.meteors.map(m => ({ id: m.id, x: r2(m.x), z: r2(m.z), r: r2(m.r), mr: r2(m.maxR), f: r2(Math.max(0, m.t - G.METEOR_GROW)) })),
@@ -774,12 +981,17 @@ function sendSnapshot(room) {
     p: [], pr: room.projectiles.map(pr => ({ id: pr.id, k: pr.kind, x: r2(pr.x), y: r2(pr.y), z: r2(pr.z) })),
     ev: room.events,
   };
+  if (room.mode === 'ktk') {
+    snap.kg = {};
+    for (const t of ['red', 'blue']) { const k = kingOf(room, t); if (k) snap.kg[t] = { id: k.id, hp: Math.ceil(Math.max(0, k.hp)), mhp: k.maxHp }; }
+  }
   for (const p of room.players.values()) {
     if (!p.inMatch) continue;
     snap.p.push({
-      id: p.id, x: r2(p.x), y: r2(p.y), z: r2(p.z), yaw: r2(p.yaw), hp: Math.ceil(p.hp), mhp: p.maxHp,
+      id: p.id, c: p.cls, x: r2(p.x), y: r2(p.y), z: r2(p.z), yaw: r2(p.yaw), hp: Math.ceil(p.hp), mhp: p.maxHp,
       dead: p.dead, rt: r2(p.respawnT), prot: p.protT > 0, inv: p.invisT > 0, sh: p.shieldT > 0, slow: p.slowT > 0,
-      sc: Math.floor(p.score), ko: p.kos, pw: p.powT > 0, sp: p.spdT > 0, pwT: r2(p.powT), spT: r2(p.spdT),
+      sc: Math.floor(p.score), ko: p.kos, de: p.deaths, dm: Math.round(p.dmgDone), kd: Math.round(p.kingDmg), nc: p.nextCls,
+      pw: p.powT > 0, sp: p.spdT > 0, pwT: r2(p.powT), spT: r2(p.spdT),
       // movement + cooldown state, used by that player's own client for prediction and HUD
       vy: r2(p.vy), kx: r2(p.kx), kz: r2(p.kz), dT: r2(p.dashT), dX: r2(p.dashVX), dZ: r2(p.dashVZ), sT: r2(p.slowT),
       seq: p.lastSeq, aCd: r2(p.atkCd), bCd: r2(p.ablCd),
@@ -823,6 +1035,7 @@ io.on('connection', socket => {
     const r = {
       code, hostId: null, players: new Map(), mode: 'ffa', botLevel: 'normal', phase: 'lobby', results: null,
       projectiles: [], events: [], teamScore: Object.fromEntries(G.TEAMS.map(t => [t, 0])), meteors: [], pickups: [], zoneIdx: 0, nextZoneIdx: null, zoneT: G.ZONE_PERIOD,
+      map: G.MAPS.arena, draft: null, draftT: 0,
       timer: 0, time: 0, emptySince: null,
     };
     rooms.set(code, r);
@@ -845,17 +1058,21 @@ io.on('connection', socket => {
     if (p) {
       p.connected = true; p.socketId = socket.id; p.inputs = [];
     } else {
-      if (r.players.size >= G.MAX_PLAYERS) {
+      if (seatCount(r) >= G.MAX_PLAYERS) {
         const bot = [...r.players.values()].find(q => q.isBot);
         if (!bot || r.phase !== 'lobby') return cb && cb({ ok: false, error: 'Room is full.' });
         r.players.delete(bot.id); // a human takes a bot's seat in the lobby
       }
       if ([...r.players.values()].some(q => q.name === n)) return cb && cb({ ok: false, error: 'That name is taken in this room.' });
       p = newPlayer(n, { socketId: socket.id });
-      if (r.mode === 'teams') p.team = smallerTeam(r, p);
+      if (teamMode(r)) p.team = smallerTeam(r, p);
       r.players.set(p.id, p);
       assignColor(r, p);
-      if (r.phase === 'countdown' || r.phase === 'playing' || r.phase === 'sudden') initSim(r, p);
+      if (r.phase === 'draft') assignFreeSlot(r.draft[p.team], p);
+      if (r.phase === 'countdown' || r.phase === 'playing' || r.phase === 'sudden') {
+        if (r.mode === 'ktk') { p.role = 'M'; p.lane = 0; }
+        initSim(r, p);
+      }
     }
     if (!r.hostId) r.hostId = p.id;
     enter(r, p);
@@ -869,7 +1086,8 @@ io.on('connection', socket => {
   });
 
   socket.on('setTeam', team => {
-    if (!me || room.mode !== 'teams' || !G.TEAMS.includes(team) || room.phase !== 'lobby') return;
+    if (!me || !teamMode(room) || !G.TEAMS.includes(team) || room.phase !== 'lobby') return;
+    if (room.mode === 'ktk' && !['red', 'blue'].includes(team)) return;
     me.team = team; broadcastLobby(room);
   });
 
@@ -879,14 +1097,16 @@ io.on('connection', socket => {
   });
 
   socket.on('setMode', mode => {
-    if (!isHost() || !['ffa', 'teams'].includes(mode) || room.phase !== 'lobby') return;
+    if (!isHost() || !['ffa', 'teams', 'ktk'].includes(mode) || room.phase !== 'lobby') return;
     room.mode = mode;
-    if (mode === 'teams') rebalanceTeams(room);
+    room.map = G.mapFor(mode);
+    if (mode === 'ktk') for (const p of [...room.players.values()]) if (p.isBot) room.players.delete(p.id); // bots fill spots automatically
+    if (teamMode(room)) rebalanceTeams(room);
     broadcastLobby(room);
   });
 
   socket.on('addBot', () => {
-    if (!isHost() || room.phase !== 'lobby' || room.players.size >= G.MAX_PLAYERS) return;
+    if (!isHost() || room.phase !== 'lobby' || room.mode === 'ktk' || room.players.size >= G.MAX_PLAYERS) return;
     const used = new Set([...room.players.values()].map(p => p.cls));
     const free = G.CLASS_ORDER.filter(c => !used.has(c));
     const cls = free.length ? free[(Math.random() * free.length) | 0] : G.CLASS_ORDER[(Math.random() * 8) | 0];
@@ -919,12 +1139,47 @@ io.on('connection', socket => {
   socket.on('start', () => {
     if (!isHost() || room.phase !== 'lobby') return;
     const ps = [...room.players.values()].filter(p => p.connected);
-    if (ps.length < 2 || ps.some(p => !p.ready)) return;
+    if (ps.length < (room.mode === 'ktk' ? 1 : 2) || ps.some(p => !p.ready)) return;
     if (room.mode === 'teams') {
       const teams = new Set(ps.map(p => p.team));
       if (teams.size < 2) return;
     }
     startMatch(room);
+  });
+
+  // ---- Kill the King draft: anyone on a team can change its line-up, take a spot, or set a bot's class
+  socket.on('draftFormation', f => {
+    if (!me || room.phase !== 'draft' || !Array.isArray(f)) return;
+    const fm = G.FORMATIONS.find(x => x.join('-') === f.join('-'));
+    if (!fm) return;
+    const d = room.draft[me.team];
+    d.formation = fm.slice();
+    d.slots = makeSlots(fm, d.slots);
+    for (const p of teamHumans(room, me.team)) if (!d.slots.some(sl => sl.humanId === p.id)) assignFreeSlot(d, p);
+    broadcastLobby(room);
+  });
+
+  socket.on('draftTake', idx => {
+    if (!me || room.phase !== 'draft') return;
+    const d = room.draft[me.team], sl = d.slots[idx];
+    if (!sl || (sl.humanId && sl.humanId !== me.id)) return;
+    for (const o of d.slots) if (o.humanId === me.id) o.humanId = null;
+    sl.humanId = me.id; me.cls = sl.cls;
+    broadcastLobby(room);
+  });
+
+  socket.on('draftClass', ({ idx, cls } = {}) => {
+    if (!me || room.phase !== 'draft' || !G.CLASS_ORDER.includes(cls)) return;
+    const d = room.draft[me.team], sl = d.slots[idx];
+    if (!sl || (sl.humanId && sl.humanId !== me.id)) return;
+    sl.cls = cls;
+    if (sl.humanId === me.id) me.cls = cls;
+    broadcastLobby(room);
+  });
+
+  socket.on('respawnClass', cls => {
+    if (!me || !me.inMatch || !me.dead || me.isKing || !G.CLASS_ORDER.includes(cls)) return;
+    me.nextCls = cls;
   });
 
   socket.on('backToLobby', () => {
