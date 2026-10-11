@@ -1,6 +1,20 @@
 # Class Clash 3D
 
-Third-person 3D multiplayer King of the Hill brawler that runs in the browser. 2–8 players join from any phone or laptop with a 4-letter room code. No login, no install.
+**Play it:** https://class-clash-3d-production.up.railway.app
+
+A browser-based, third-person 3D multiplayer arena game. Friends join from any phone or laptop with a 4-letter room code: no login, no install. Pick from 8 classes and fight in a Roman colosseum, either King of the Hill or **Kill the King**, an 8v8 mode where you draft your line-up, pick a class for every bot on your team, and try to take down the enemy King.
+
+![Kill the King finale](docs/screenshots/finale.png)
+
+## About this repo: AI competition project
+
+I'm using this repository for an AI competition: the **Handshake AI Skills Studio × OpenAI Multiplayer Game Challenge** (entries due October 30, 2026). The challenge is to build a real-time multiplayer game that anyone can join from their own device with a room code, by guiding an AI through the design, build and debugging.
+
+This repo is my working prototype and design reference for that project. It was built with AI assistance (Claude Code, by Anthropic): I made the design decisions (modes, classes, the draft, the King, the crowd, the finale) and directed and play-tested each change, and the AI wrote and tested the code. The challenge's official rules say the submitted project must be built in ChatGPT, so this repo is the reference, not the official entry.
+
+| Draft your team | Knockouts | Results |
+|---|---|---|
+| ![Draft](docs/screenshots/draft.png) | ![Knockout](docs/screenshots/knockout.png) | ![Results](docs/screenshots/results.png) |
 
 ## Run it
 
@@ -22,6 +36,7 @@ Rooms live in server memory, so keep the service at **1 replica**: with more, pl
 
 - **Free-for-all / Teams:** King of the Hill in the colosseum (see Features).
 - **Kill the King:** 8v8 on a long field (bots fill every empty spot). A 30 s draft (ends early when every human presses Ready): pick a line-up (Defenders–Midfield–Attackers, e.g. 3-3-2), take a spot, and choose a class for every bot. Each team has a slow 300 HP King with a 10 dmg short sword and an always-on aura: teammates within 5 m heal 4 HP/s, within 10 m move 20% faster. Kill theirs to win. Bot defenders cover their whole half, midfielders roam the map, attackers stay out of the back 25% of their half; humans go anywhere. Players who join mid-match take over a bot on the team with fewer humans; players who leave are replaced by a bot. Dying makes you explode ("YOU DIED"), then opens a death screen (10 s countdown, class swap, team stats, crowd vote) and you respawn on your 25% line. 5-minute rounds; if no King falls, the healthier King wins. Last 30 s = Final Frenzy: double damage, power-ups spawn 5x faster, 3 s respawns.
+- **Also in every match:** a kill cam (the camera turns to whoever got you, with their name, class and distance), emotes (keys 1–4 or the 😀 button: wave, cheer, taunt, dance), Kill the King call-outs ("Your King is under attack!" plus an arrow to him), and a sound mix with a live crowd that swells on knockouts.
 - **All modes:** a crowd of fans fills the stands and cheers on knockouts. Bots show "(bot)" under their names. The winning moment plays as a slow-motion finale (cinematic bars, winner banner, camera circling the fallen King or the winner) before MVP award cards and the results table. Knocked-out players (and knocked-out bots) vote where the next bonus power-up drops (every 12 s): Red side / Middle / Blue side (West / Middle / East in the colosseum). Every match gets a random pillar-and-wall layout (mirrored on the Kill the King field so it stays fair).
 
 ## Features

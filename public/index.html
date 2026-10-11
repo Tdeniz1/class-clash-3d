@@ -184,6 +184,10 @@
     <ul id="feed" class="feed"></ul>
     <div id="centerMsg" class="center-msg"></div>
     <div id="youDied" class="you-died hidden">YOU DIED</div>
+    <div id="killCam" class="killcam hidden"></div>
+    <div id="kingAlert" class="king-alert hidden" role="alert"></div>
+    <div id="kingArrow" class="zone-arrow king-arrow">♛</div>
+    <div id="emoteHint" class="emote-hint">1 👋 · 2 🎉 · 3 😤 · 4 🕺</div>
     <div id="finaleBanner" class="finale-banner hidden"><div id="finaleTitle"></div><div id="finaleSub"></div></div>
     <div id="subMsg" class="sub-msg"></div>
     <div id="crosshair" class="crosshair"></div>
@@ -204,6 +208,7 @@
   <div id="deathScreen" class="death hidden" role="dialog" aria-label="Knocked out">
     <div class="death-panel">
       <div class="death-title" id="deathTitle">You died</div>
+      <div id="deathBy" class="death-by"></div>
       <div class="death-timer">Back in <b id="deathTime">8</b>s<span id="deathWhere"></span></div>
       <div class="eyebrow">Switch class for your next life</div>
       <div id="deathClasses" class="death-classes"></div>
@@ -229,6 +234,11 @@
     <button id="tAtk" class="tbtn tbtn-atk" aria-label="Attack">⚔</button>
     <button id="tAbl" class="tbtn tbtn-abl" aria-label="Special ability">✦<span id="tAblName" class="tbtn-name"></span></button>
     <button id="tJump" class="tbtn tbtn-jump" aria-label="Jump">⤒</button>
+    <button id="tEmote" class="tbtn tbtn-emote" aria-label="Emotes">😀</button>
+    <div id="emoteWheel" class="emote-wheel hidden" role="group" aria-label="Emotes">
+      <button data-emote="wave" aria-label="Wave">👋</button><button data-emote="cheer" aria-label="Cheer">🎉</button>
+      <button data-emote="taunt" aria-label="Taunt">😤</button><button data-emote="dance" aria-label="Dance">🕺</button>
+    </div>
   </div>
 
   <!-- SETTINGS -->

@@ -1312,6 +1312,15 @@ io.on('connection', socket => {
     broadcastLobby(room);
   });
 
+  // emotes: 1 wave, 2 cheer, 3 taunt, 4 dance (2 s cooldown)
+  socket.on('emote', k => {
+    if (!me || !me.inMatch || me.dead || !['wave', 'cheer', 'taunt', 'dance'].includes(k)) return;
+    const now = Date.now();
+    if (now - (me.lastEmote || 0) < 2000) return;
+    me.lastEmote = now;
+    evLater(room, { t: 'emote', id: me.id, e: k });
+  });
+
   socket.on('crowdVote', idx => {
     if (!me || !me.inMatch || !me.dead || !room.map.voteSpots[idx]) return;
     room.votes.set(me.id, idx);

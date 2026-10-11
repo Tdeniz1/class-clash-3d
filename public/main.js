@@ -552,7 +552,7 @@ function ensureChar(id, snapCls) {
   if (!ch) {
     const tag = document.createElement('div');
     tag.className = 'tag';
-    tag.innerHTML = '<div><span class="n"></span><span class="icons"></span></div><div class="botlbl">(bot)</div><div class="bar"><i></i></div>';
+    tag.innerHTML = '<span class="emote"></span><div><span class="n"></span><span class="icons"></span></div><div class="botlbl">(bot)</div><div class="bar"><i></i></div>';
     $('#tags').appendChild(tag);
     ch = { buf: [], tag, flashT: 0, atkT: 0, walk: 0, lastPos: null, state: null };
     chars.set(id, ch);
@@ -703,13 +703,62 @@ function tone(freq, dur = 0.1, type = 'square', vol = 0.06, slide = 0) {
     o.start(); o.stop(actx.currentTime + dur);
   } catch {}
 }
+// noise buffer for impacts, whooshes, explosions and the crowd
+let noiseBuf = null, crowdAudio = null;
+function ac() { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); return actx; }
+function noise() {
+  if (noiseBuf) return noiseBuf;
+  const c = ac(), len = c.sampleRate * 2;
+  noiseBuf = c.createBuffer(1, len, c.sampleRate);
+  const d = noiseBuf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  return noiseBuf;
+}
+function noiseBurst({ dur = 0.15, freq = 800, q = 1, vol = 0.2, type = 'bandpass', sweep = 0, attack = 0.005 }) {
+  if (muted) return;
+  try {
+    const c = ac(), t = c.currentTime, src = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+    src.buffer = noise(); src.loop = true;
+    f.type = type; f.frequency.value = freq; f.Q.value = q;
+    if (sweep) f.frequency.exponentialRampToValueAtTime(Math.max(60, freq + sweep), t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + attack); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f).connect(g).connect(c.destination);
+    src.start(t, Math.random()); src.stop(t + dur + 0.05);
+  } catch {}
+}
+// The crowd: a constant murmur plus a cheer layer that swells with excitement
+function ensureCrowdAudio() {
+  if (crowdAudio) return;
+  try {
+    const c = ac(), mk = (freq, q) => {
+      const src = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+      src.buffer = noise(); src.loop = true; f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q; g.gain.value = 0;
+      src.connect(f).connect(g).connect(c.destination); src.start(0, Math.random());
+      return { g, f };
+    };
+    crowdAudio = { murmur: mk(500, 0.7), cheer: mk(1300, 0.9) };
+  } catch {}
+}
+function updateCrowdAudio() {
+  if (!crowdAudio || !actx) return;
+  const playing = inMatchNow(), fz = lastSnap && lastSnap.fz ? 1 : 0, t = actx.currentTime;
+  const murmur = muted ? 0 : playing ? 0.035 + fz * 0.02 : 0.012;
+  const cheer = muted || !playing ? 0 : Math.min(0.16, crowdExcite * 0.07 + fz * 0.03);
+  crowdAudio.murmur.g.gain.setTargetAtTime(murmur, t, 0.3);
+  crowdAudio.cheer.g.gain.setTargetAtTime(cheer, t, 0.15);
+  crowdAudio.cheer.f.frequency.setTargetAtTime(1100 + crowdExcite * 300, t, 0.2);
+}
+
 const sfx = {
-  hit: () => tone(180, 0.08, 'square', 0.05, -80),
-  hurt: () => tone(110, 0.15, 'sawtooth', 0.07, -50),
+  hit: () => { noiseBurst({ dur: 0.12, freq: 1100, q: 0.9, vol: 0.28 }); tone(160, 0.09, 'triangle', 0.07, -70); },
+  hurt: () => { noiseBurst({ dur: 0.2, freq: 380, q: 0.7, vol: 0.32 }); tone(95, 0.18, 'sawtooth', 0.06, -40); },
+  swing: () => noiseBurst({ dur: 0.16, freq: 2400, q: 1.8, vol: 0.07, sweep: -1700, attack: 0.03 }),
+  roar: () => noiseBurst({ dur: 1.4, freq: 1200, q: 0.6, vol: 0.14, attack: 0.25, sweep: -300 }),
+  alarm: () => { tone(880, 0.12, 'square', 0.06); setTimeout(() => tone(660, 0.16, 'square', 0.06), 140); },
   ko: () => { tone(520, 0.12, 'square', 0.06); setTimeout(() => tone(780, 0.2, 'square', 0.06), 90); },
   ability: () => tone(300, 0.25, 'triangle', 0.08, 400),
   boom: () => tone(80, 0.3, 'sawtooth', 0.09, -40),
-  explode: () => { tone(120, 0.5, 'sawtooth', 0.12, -90); tone(60, 0.7, 'square', 0.08, -30); setTimeout(() => tone(40, 0.5, 'sawtooth', 0.06, -10), 120); },
+  explode: () => { noiseBurst({ dur: 1.0, freq: 420, q: 0.5, vol: 0.55, type: 'lowpass', sweep: -340 }); tone(70, 0.6, 'sawtooth', 0.09, -40); setTimeout(() => noiseBurst({ dur: 0.6, freq: 2200, q: 0.8, vol: 0.08 }), 60); },
   tick: () => tone(660, 0.08, 'sine', 0.08),
   go: () => tone(990, 0.3, 'sine', 0.09),
   power: () => { tone(520, 0.1, 'triangle', 0.08); setTimeout(() => tone(880, 0.18, 'triangle', 0.08), 80); },
@@ -769,7 +818,7 @@ function doJoin() {
 $('#joinBtn').onclick = doJoin;
 codeInput.addEventListener('keydown', e => { if (e.key === 'Enter') doJoin(); });
 nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') (codeInput.value.trim().length === 4 ? doJoin() : $('#createBtn').click()); });
-function unlockAudio() { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); } catch {} }
+function unlockAudio() { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); ensureCrowdAudio(); } catch {} }
 
 // auto-rejoin after a refresh, and after a dropped connection
 socket.on('connect', () => {
@@ -950,6 +999,8 @@ function resetMatchState() {
   updateMeteorObjs([]); updatePickupObjs([]);
   leaderId = null;
   $('#finaleBanner').classList.add('hidden');
+  kingWarned = { half: false, quarter: false }; kingAlertUntil = 0; killerId = null; killText = '';
+  $('#emoteWheel').classList.add('hidden');
   $('#hud').classList.remove('finale');
   document.body.classList.remove('finale');
   $('#feed').innerHTML = '';
@@ -1047,6 +1098,17 @@ addEventListener('keydown', e => {
   keys.add(e.code);
   if (e.code === 'KeyE' || e.code === 'KeyQ') { ablQueued = true; ablHeld = true; }
   if (e.code === 'Space' && inMatchNow()) e.preventDefault();
+});
+const EMOTES = { wave: '👋', cheer: '🎉', taunt: '😤', dance: '🕺' };
+const EMOTE_KEYS = { Digit1: 'wave', Digit2: 'cheer', Digit3: 'taunt', Digit4: 'dance' };
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || !inMatchNow() || !EMOTE_KEYS[e.code]) return;
+  socket.emit('emote', EMOTE_KEYS[e.code]);
+});
+$('#tEmote').addEventListener('pointerdown', e => { e.preventDefault(); $('#emoteWheel').classList.toggle('hidden'); });
+$('#emoteWheel').addEventListener('pointerdown', e => {
+  const b = e.target.closest('[data-emote]'); if (!b) return;
+  e.preventDefault(); socket.emit('emote', b.dataset.emote); $('#emoteWheel').classList.add('hidden');
 });
 addEventListener('keyup', e => { keys.delete(e.code); if (e.code === 'KeyE' || e.code === 'KeyQ') ablHeld = false; });
 addEventListener('blur', () => { keys.clear(); mouseAtk = false; ablHeld = false; });
@@ -1236,6 +1298,10 @@ function handleEvent(e) {
   switch (e.t) {
     case 'hit':
       if (ch) ch.flashT = 0.12;
+      if (lobby.mode === 'ktk' && lastSnap && lastSnap.kg) {
+        const own = lastSnap.kg[(lobbyPlayer(myId) || {}).team];
+        if (own && e.id === own.id && performance.now() - lastKingAlert > 6000) alertKing('⚠ Your King is under attack!');
+      }
       // only numbers that matter to you: your hits, hits on you, or fights right next to you
       if (e.by === myId || e.id === myId || (pred && Math.hypot(e.x - pred.x, e.z - pred.z) < 12)) floatText(e.x, e.y, e.z, e.amt, e.by === myId ? 'mine' : '');
       if (e.id === myId) sfx.hurt(); else if (e.by === myId) sfx.hit();
@@ -1249,7 +1315,16 @@ function handleEvent(e) {
       explodeFx(e.x, e.y, e.z, c, e.id === myId || e.king);
       if (pred && Math.hypot(pred.x - e.x, pred.z - e.z) < 14) shakeT = Math.max(shakeT, e.id === myId ? 0.6 : 0.3);
       crowdExcite = Math.min(2, crowdExcite + (e.king ? 2 : 0.6));
-      if (e.id === myId) { deathAt = performance.now(); showYouDied(); }
+      if (e.by === myId || e.king || (pred && Math.hypot(pred.x - e.x, pred.z - e.z) < 20)) sfx.roar();
+      if (e.id === myId) {
+        deathAt = performance.now(); showYouDied();
+        killerId = e.by && e.by !== myId ? e.by : null; killCause = e.cause || null;
+        const kl = killerId && lobbyPlayer(killerId), kc = killerId && chars.get(killerId);
+        const dist = kc && kc.state && pred ? Math.round(Math.hypot(kc.state.x - pred.x, kc.state.z - pred.z)) : null;
+        const who = kl ? `<b>${esc(kl.name)}</b>${kl.isBot && !kl.isKing ? ' (bot)' : ''} · ${G.CLASSES[(kc && kc.state && kc.state.c) || kl.cls].name}` : '';
+        killText = killCause === 'meteor' ? '☄ A meteor got you' : kl ? `${who} got you${dist != null ? ` from ${dist} m` : ''}` : 'You were knocked out';
+        $('#killCam').innerHTML = killText;
+      }
       feed(e.by ? `${nameTag(e.by)} ⚔ ${nameTag(e.id)}` : e.cause === 'meteor' ? `☄ ${nameTag(e.id)} got hit by a meteor` : `${nameTag(e.id)} was knocked out`);
       if (e.by === myId) { sfx.ko(); flashCenter('+3 KO', 700); }
       if (e.king && lp) flashCenter(`${G.TEAM_NAMES[lp.team]} King has fallen!`, 2500);
@@ -1259,6 +1334,7 @@ function handleEvent(e) {
     }
     case 'atk':
       if (ch) ch.atkT = 0.25;
+      if (e.id === myId) sfx.swing();
       break;
     case 'abl': {
       const colors = { slam: 0xc9a46a, nova: 0x9be7ff, sanctuary: 0xffe08a, blast: 0xff8c42, shadow: 0x222233, shadow2: 0x222233, roll: 0x9bc53d, lunge: 0xe4572e, hook: 0xbbbbbb };
@@ -1279,6 +1355,15 @@ function handleEvent(e) {
     case 'sudden':
       flashCenter('SUDDEN DEATH', 1600);
       break;
+    case 'emote': {
+      if (ch) {
+        ch.emote = { k: e.e, t: 2, age: 0 };
+        const em = ch.tag.querySelector('.emote');
+        em.textContent = EMOTES[e.e]; em.style.animation = 'none'; void em.offsetWidth; em.style.animation = '';
+      }
+      crowdExcite = Math.min(2, crowdExcite + 0.25);
+      break;
+    }
     case 'joined': {
       const l = lobbyPlayer(e.id);
       feed(`${nameTag(e.id)} joined and took over ${esc(e.took)}`);
@@ -1341,8 +1426,29 @@ function handleEvent(e) {
   }
 }
 
+// ---------- King call-outs ----------
+let kingAlertUntil = 0, lastKingAlert = 0, kingWarned = { half: false, quarter: false };
+function alertKing(text) {
+  $('#kingAlert').textContent = text;
+  $('#kingAlert').classList.remove('hidden');
+  kingAlertUntil = performance.now() + 3500; lastKingAlert = performance.now();
+  sfx.alarm();
+}
+function placeArrow(el, x, z) {
+  const p = screenPos(x, gh(x, z) + 1, z);
+  const off = p.behind || p.x < 40 || p.x > innerWidth - 40 || p.y < 40 || p.y > innerHeight - 40;
+  if (!off || !pred) { el.style.display = 'none'; return; }
+  const dx = x - pred.x, dz = z - pred.z, f = G.facing(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
+  const ang = Math.atan2(dx * rx + dz * rz, dx * f.x + dz * f.z), r = Math.min(innerWidth, innerHeight) * 0.38;
+  el.style.display = 'block';
+  el.style.transform = `translate(-50%, -50%) translate(${Math.sin(ang) * r}px, ${-Math.cos(ang) * r}px) rotate(${ang}rad)`;
+}
+
 // ---------- death screen: countdown, class swap, team stats ----------
-let deathStatsAt = 0, deathAt = 0;
+let deathStatsAt = 0, deathAt = 0, killerId = null, killCause = null, killText = '';
+// red marker over whoever knocked you out
+const killMarker = new THREE.Mesh(new THREE.ConeGeometry(0.35, 0.8, 4), new THREE.MeshBasicMaterial({ color: 0xff3b30 }));
+killMarker.rotation.x = Math.PI; killMarker.visible = false; scene.add(killMarker);
 function showYouDied() {
   const el = $('#youDied');
   el.classList.remove('hidden'); el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
@@ -1357,6 +1463,7 @@ function updateDeathScreen(s, me, lp) {
   const ktk = lobby.mode === 'ktk';
   $('#deathTime').textContent = Math.max(0, Math.ceil(me.rt));
   $('#deathTitle').textContent = 'You died';
+  $('#deathBy').innerHTML = killText;
   $('#deathWhere').textContent = ktk ? ' · at your 25% line' : '';
   const nextCls = me.nc || me.c;
   if (s.cv) {
@@ -1625,6 +1732,15 @@ function frame() {
     g.position.set(pos.x, pos.y, pos.z);
     g.rotation.y = pos.yaw;
 
+    // emote animation (cosmetic only)
+    const emo = ch.emote;
+    if (emo) {
+      emo.t -= dt; emo.age += dt;
+      if (emo.t <= 0) { ch.emote = null; ch.tag.querySelector('.emote').textContent = ''; }
+      else if (emo.k === 'dance') g.rotation.y = pos.yaw + emo.age * 9;
+      else if (emo.k === 'cheer') g.position.y += Math.abs(Math.sin(emo.age * 9)) * 0.5;
+      else if (emo.k === 'taunt') g.rotation.x = Math.sin(emo.age * 12) * 0.18;
+    } else g.rotation.x = 0;
     // walk animation
     const moved = ch.lastPos ? Math.hypot(pos.x - ch.lastPos.x, pos.z - ch.lastPos.z) / Math.max(dt, 1e-3) : 0;
     ch.lastPos = { x: pos.x, z: pos.z };
@@ -1632,7 +1748,10 @@ function frame() {
     const swing = moved > 0.5 ? Math.sin(ch.walk) * 0.6 : 0;
     ch.model.legL.rotation.x = swing; ch.model.legR.rotation.x = -swing;
     // attack swing
-    if (ch.atkT > 0) {
+    if (emo && emo.k === 'wave') { ch.model.pivot.rotation.x = -2.7; ch.model.pivot.rotation.z = Math.sin(emo.age * 12) * 0.6; }
+    else ch.model.pivot.rotation.z = 0;
+    if (emo && emo.k === 'wave') { /* arm is up and waving */ }
+    else if (ch.atkT > 0) {
       ch.atkT = Math.max(0, ch.atkT - dt);
       ch.model.pivot.rotation.x = ch.model.baseRotX - Math.sin((1 - ch.atkT / 0.25) * Math.PI) * 1.5;
     } else ch.model.pivot.rotation.x = ch.model.baseRotX;
@@ -1660,7 +1779,8 @@ function frame() {
     // declutter: names only up close, just a health bar at mid range, nothing far away (Kings always shown)
     const camD = Math.hypot(pos.x - camera.position.x, pos.z - camera.position.z);
     const isKing = lp && lp.isKing;
-    const showTag = visible && id !== myId && (isKing || camD < 26);
+    const showTag = visible && (id !== myId ? (isKing || camD < 26) : !!ch.emote);
+    ch.tag.classList.toggle('selftag', id === myId);
     ch.tag.classList.toggle('far', !isKing && camD > 13);
     if (showTag) {
       const p = screenPos(pos.x, pos.y + 2.5 * (G.CLASSES[lp ? lp.cls : 'gladiator'].size), pos.z);
@@ -1680,6 +1800,7 @@ function frame() {
   animateWorldObjs(now, dt);
   if (boomLightT > 0) { boomLightT = Math.max(0, boomLightT - realDt); boomLight.intensity = boomLightT / 0.35 * 7; }
   animateCrowd(now, realDt);
+  updateCrowdAudio();
   updateEffects(dt);
   if (zoneBeam && lastSnap) {
     const z = lastSnap.zone;
@@ -1745,6 +1866,14 @@ function updateCamera(dt) {
   want.y = Math.max(want.y, gh(want.x, want.z) + 0.3);
   camera.position.copy(want);
   camera.lookAt(camera.position.clone().add(dir));
+  // kill cam: hold position but turn to face whoever got you
+  const meDead = mySnapState();
+  const kc = meDead && meDead.dead && killerId && chars.get(killerId);
+  if (kc && kc.model.group.visible) {
+    const k = Math.min(1, Math.max(0, (performance.now() - deathAt - 300) / 700));
+    const kp = kc.model.group.position, base = camera.position.clone().add(dir.clone().multiplyScalar(10));
+    camera.lookAt(base.lerp(new THREE.Vector3(kp.x, kp.y + 1.2, kp.z), k * k * (3 - 2 * k)));
+  }
   if (shakeT > 0) {
     shakeT = Math.max(0, shakeT - dt);
     camera.position.x += (Math.random() - 0.5) * shakeT * 0.8;
@@ -1779,6 +1908,21 @@ function updateHud(now) {
     }
   }
   updateDeathScreen(s, me, lp);
+  // King call-outs: health thresholds, alert banner, arrow to your own King while it's showing
+  if (ktk && s.kg && s.kg[lp.team] && s.phase !== 'countdown') {
+    const own = s.kg[lp.team], frac = own.hp / own.mhp;
+    if (frac < 0.5 && !kingWarned.half) { kingWarned.half = true; alertKing('⚠ Your King is below half health!'); }
+    if (frac < 0.25 && !kingWarned.quarter) { kingWarned.quarter = true; alertKing('🚨 Your King is almost down — defend him!'); }
+  }
+  const alertOn = now < kingAlertUntil && !s.fin;
+  $('#kingAlert').classList.toggle('hidden', !alertOn);
+  const ownK = alertOn && s.kg && s.kg[lp.team] && chars.get(s.kg[lp.team].id);
+  if (ownK && ownK.state) placeArrow($('#kingArrow'), ownK.state.x, ownK.state.z); else $('#kingArrow').style.display = 'none';
+  $('#emoteHint').style.display = me.dead || s.fin ? 'none' : '';
+  $('#killCam').classList.toggle('hidden', !me.dead || !!s.fin || !killText);
+  const kmc = me.dead && killerId && chars.get(killerId);
+  killMarker.visible = !!(kmc && kmc.model.group.visible);
+  if (killMarker.visible) { const kp = kmc.model.group.position; killMarker.position.set(kp.x, kp.y + 3.4 + Math.sin(now / 150) * 0.15, kp.z); killMarker.rotation.y += 0.05; }
 
   const teams = lobby.mode === 'teams';
   if (ktk) $('#timer').textContent = fmt(s.phase === 'countdown' ? G.KTK_TIME : s.timer);
