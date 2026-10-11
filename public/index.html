@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="theme-color" content="#1c140d">
+  <meta name="description" content="Class Clash 3D — a free browser multiplayer arena brawler. Pick a class, hold the zone, knock everyone else out.">
+  <title>Class Clash 3D</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&family=Rubik:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+  </script>
+</head>
+<body>
+  <canvas id="game" aria-label="Game view"></canvas>
+  <div id="tags" aria-hidden="true"></div>
+
+  <!-- HOME -->
+  <section id="home" class="screen">
+    <div class="panel home-panel">
+      <h1 class="logo">Class Clash <span>3D</span></h1>
+      <p class="tagline">Pick a class. Stand in the glowing zone to score. Knock everyone else out of it. Highest score after 3 minutes wins.</p>
+      <label class="field">
+        <span>Your name</span>
+        <input id="nameInput" maxlength="12" autocomplete="nickname" placeholder="e.g. Deniz">
+      </label>
+      <button id="createBtn" class="btn btn-primary">Create room</button>
+      <div class="divider"><span>or join a friend</span></div>
+      <div class="join-row">
+        <label class="field grow">
+          <span>Room code</span>
+          <input id="codeInput" maxlength="4" autocapitalize="characters" autocomplete="off" placeholder="ABCD">
+        </label>
+        <button id="joinBtn" class="btn">Join</button>
+      </div>
+      <p id="homeError" class="error" role="alert"></p>
+    </div>
+  </section>
+
+  <!-- LOBBY -->
+  <section id="lobby" class="screen hidden">
+    <div class="lobby-wrap">
+      <header class="lobby-head">
+        <div>
+          <div class="eyebrow">Room code</div>
+          <div class="room-code" id="roomCode">----</div>
+        </div>
+        <div class="invite-box">
+          <button id="copyLinkBtn" class="btn btn-small">Copy invite link</button>
+          <div id="inviteUrl" class="invite-url"></div>
+        </div>
+        <div class="mode-box">
+          <div class="eyebrow">Mode</div>
+          <div class="seg" id="modeSeg" role="group" aria-label="Game mode">
+            <button data-mode="ffa">Free-for-all</button>
+            <button data-mode="teams">Teams</button>
+          </div>
+        </div>
+        <div class="mode-box mode-box-2">
+          <div class="eyebrow">Bot skill</div>
+          <div class="seg" id="botSeg" role="group" aria-label="Bot difficulty">
+            <button data-lvl="easy">Easy</button>
+            <button data-lvl="normal">Normal</button>
+            <button data-lvl="hard">Hard</button>
+          </div>
+        </div>
+      </header>
+
+      <div class="lobby-grid">
+        <div class="col">
+          <h2>Players <span id="playerCount" class="muted"></span></h2>
+          <ul id="playerList" class="player-list"></ul>
+          <div id="hostTools" class="host-tools">
+            <button id="addBotBtn" class="btn btn-small">+ Add bot</button>
+            <button id="fillBotsBtn" class="btn btn-small">Fill with bots</button>
+          </div>
+          <div id="teamPick" class="team-pick hidden"></div>
+        </div>
+        <div class="col col-wide">
+          <h2>Choose your class</h2>
+          <div id="classGrid" class="class-grid"></div>
+        </div>
+      </div>
+
+      <footer class="lobby-foot">
+        <p class="rules"><strong>How to play:</strong> WASD / joystick to move · mouse / drag to look · click / ⚔ to attack · E / ✦ for your special · Space / ⤒ to jump.</p>
+        <div class="foot-btns">
+          <button id="readyBtn" class="btn">I'm ready</button>
+          <button id="startBtn" class="btn btn-primary">Start match</button>
+        </div>
+        <p id="startHint" class="muted small"></p>
+      </footer>
+    </div>
+  </section>
+
+  <!-- RESULTS -->
+  <section id="results" class="screen hidden">
+    <div class="panel results-panel">
+      <div class="eyebrow">Match over</div>
+      <h2 id="winnerText" class="winner"></h2>
+      <div id="teamResult" class="team-result"></div>
+      <table class="score-table">
+        <thead><tr><th>#</th><th>Player</th><th>Class</th><th>Points</th><th>KOs</th></tr></thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+      <button id="againBtn" class="btn btn-primary">Play again</button>
+      <p id="againHint" class="muted small"></p>
+    </div>
+  </section>
+
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <div class="hud-top">
+      <div id="timer" class="timer">3:00</div>
+      <div id="zoneInfo" class="zone-info"></div>
+    </div>
+    <div id="teamScores" class="team-scores hidden"></div>
+    <ol id="scoreList" class="score-list"></ol>
+    <ul id="feed" class="feed"></ul>
+    <div id="centerMsg" class="center-msg"></div>
+    <div id="subMsg" class="sub-msg"></div>
+    <div id="crosshair" class="crosshair"></div>
+    <div id="zoneArrow" class="zone-arrow">▲</div>
+    <div class="me-box">
+      <div class="me-line"><span id="meName"></span> · <span id="meClass"></span> · <strong id="meScore">0</strong> pts</div>
+      <div id="buffs" class="buffs"></div>
+      <div class="hp-bar"><div id="hpFill"></div><span id="hpText"></span></div>
+    </div>
+    <div id="cds" class="cds">
+      <div class="cd" id="cdAtk"><span class="key">Click</span><span class="cd-name">Attack</span></div>
+      <div class="cd" id="cdAbl"><span class="key">E</span><span class="cd-name" id="ablName">Special</span></div>
+    </div>
+    <div id="lockHint" class="lock-hint hidden">Click to play · Esc frees your mouse</div>
+  </div>
+
+  <!-- TOUCH CONTROLS -->
+  <div id="touch" class="hidden">
+    <div id="joyZone"></div>
+    <div id="lookZone"></div>
+    <div id="joyBase"><div id="joyKnob"></div></div>
+    <button id="tAtk" class="tbtn tbtn-atk" aria-label="Attack">⚔</button>
+    <button id="tAbl" class="tbtn tbtn-abl" aria-label="Special ability">✦</button>
+    <button id="tJump" class="tbtn tbtn-jump" aria-label="Jump">⤒</button>
+  </div>
+
+  <!-- SETTINGS -->
+  <button id="gearBtn" class="gear hidden" aria-label="Settings">⚙</button>
+  <div id="settings" class="settings hidden" role="dialog" aria-label="Settings">
+    <label>Look sensitivity <input id="sensInput" type="range" min="0.3" max="2.5" step="0.1" value="1"></label>
+    <label class="check"><input id="muteInput" type="checkbox"> Mute sounds</label>
+    <button id="leaveBtn" class="btn btn-small">Leave room</button>
+    <button id="closeSettings" class="btn btn-small">Close</button>
+  </div>
+
+  <div id="rotate" class="rotate">↻ Rotate your phone to landscape</div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="main.js"></script>
+</body>
+</html>

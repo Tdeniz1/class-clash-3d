@@ -1,0 +1,43 @@
+# Class Clash 3D
+
+Third-person 3D multiplayer King of the Hill brawler that runs in the browser. 2–8 players join from any phone or laptop with a 4-letter room code. No login, no install.
+
+## Run it
+
+```
+npm install
+npm start
+```
+
+Open http://localhost:3000. Other devices on the same Wi-Fi can join at `http://<your-computer's-IP>:3000`.
+
+For quick testing, `ROUND_TIME=20 npm start` shortens rounds to 20 seconds.
+
+## Live
+
+https://class-clash-3d-production.up.railway.app (Railway). Redeploy with `railway up --service class-clash-3d --detach`.
+Rooms live in server memory, so keep the service at **1 replica**: with more, players in the same room could land on different servers.
+
+## Features
+
+- 8 classes: Tank, Archer, Mage, Gladiator, Rogue, Paladin, Bomber, Lancer (each with an attack, a special and a passive; all numbers live in `shared/game.js`)
+- Free-for-all or Teams: everyone starts split across Red and Blue and can switch to any of Red, Blue, Green or Gold in the lobby (no friendly fire)
+- Bots fill empty seats, with Easy / Normal / Hard skill (aim wobble, reaction time, slower attacks, mistimed swings)
+- King of the Hill: zone moves every 30 s with a 5 s warning; solo = 1 pt/s, contested = 0, KO = +3; 3-minute rounds, sudden death on ties
+- Meteor shower in the last 45 s: red circles grow one at a time, then a meteor lands and knocks out anyone inside
+- Power-ups: health bubble (+50% HP), sword (2x damage, 10 s), lightning (1.5x speed, 10 s)
+- Gold star over the current leader
+- Ranged attacks fly to the crosshair point (bombs arc onto it); light aim assist near enemies
+- Hidden comeback boost after 3 deaths in a row without a kill (less damage taken, more dealt; fades after a kill)
+- Server-authoritative: clients send inputs only; the server decides hits, HP, scores and the timer
+- Client-side prediction for your own player, 100 ms interpolation for everyone else
+- Laptop: WASD + mouse look (pointer lock), click = attack, E/right-click = special, Space = jump
+- Phone (landscape): left joystick, drag right side to look, attack / special / jump buttons
+- Invite links (`?room=CODE`) open straight into a join screen; locally they use the computer's Wi-Fi address
+- Rejoin within 30 s with the same name keeps your score
+
+## Files
+
+- `server.js`: rooms, match loop (30 ticks/s), combat, bots
+- `shared/game.js`: arena layout, class stats, movement physics (used by both server and client)
+- `public/`: Three.js client (`main.js`), UI (`index.html`, `style.css`)

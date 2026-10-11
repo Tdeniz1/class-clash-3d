@@ -1,0 +1,17 @@
+{
+  "name": "class-clash-3d",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Third-person 3D multiplayer King of the Hill arena brawler",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.22.3",
+    "socket.io": "^4.8.4"
+  }
+}
