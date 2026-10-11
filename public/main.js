@@ -726,34 +726,98 @@ function noiseBurst({ dur = 0.15, freq = 800, q = 1, vol = 0.2, type = 'bandpass
     src.start(t, Math.random()); src.stop(t + dur + 0.05);
   } catch {}
 }
-// The crowd: a constant murmur plus a cheer layer that swells with excitement
+// ---------- crowd audio: a low murmur bed + synthesized voices for cheers (no hiss) ----------
+let brownBuf = null, lastCheer = 0;
+// brown noise = low, rumbly noise (energy falls off with pitch, unlike white-noise hiss)
+function brownNoise(c) {
+  if (brownBuf && brownBuf.sampleRate === c.sampleRate) return brownBuf;
+  const len = c.sampleRate * 3, b = c.createBuffer(1, len, c.sampleRate), d = b.getChannelData(0);
+  let last = 0;
+  for (let i = 0; i < len; i++) { last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02; d[i] = last * 3.5; }
+  brownBuf = b;
+  return b;
+}
+// The murmur: lowpassed brown noise that slowly "breathes"
+function makeCrowdBed(c, out) {
+  const src = c.createBufferSource(); src.buffer = brownNoise(c); src.loop = true;
+  const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 380; lp.Q.value = 0.4;
+  const breathe = c.createGain(); breathe.gain.value = 0.85;
+  const lfo = c.createOscillator(), depth = c.createGain(); lfo.frequency.value = 0.21; depth.gain.value = 0.15;
+  lfo.connect(depth).connect(breathe.gain);
+  const g = c.createGain(); g.gain.value = 0;
+  src.connect(lp).connect(breathe).connect(g).connect(out);
+  src.start(0, Math.random() * 2); lfo.start();
+  return { g, lp };
+}
+// A cheer: a chorus of voices shaped into an "aaah / yeah" vowel by formant filters
+function makeCheer(c, out, { voices = 10, dur = 1.6, vol = 0.05, t0 = c.currentTime, vowel = 'ah' } = {}) {
+  const F = vowel === 'oh' ? [[500, 6, 1], [850, 7, 0.6], [2400, 8, 0.15]] : [[750, 5, 1], [1150, 6, 0.7], [2500, 8, 0.18]];
+  const mix = c.createGain(), master = c.createGain();
+  master.gain.value = vol;
+  for (const [f, q, gain] of F) {
+    const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = q;
+    const g = c.createGain(); g.gain.value = gain * 3;
+    mix.connect(bp).connect(g).connect(master);
+  }
+  master.connect(out);
+  for (let i = 0; i < voices; i++) {
+    const o = c.createOscillator(); o.type = 'sawtooth';
+    const base = 140 + Math.random() * 260, s0 = t0 + Math.random() * 0.25, a = 0.12 + Math.random() * 0.3, end = s0 + dur * (0.75 + Math.random() * 0.4);
+    // cheer contour: rise into the shout, then fall away
+    o.frequency.setValueAtTime(base * 0.9, s0);
+    o.frequency.linearRampToValueAtTime(base * 1.15, s0 + a);
+    o.frequency.linearRampToValueAtTime(base * 1.02, s0 + (end - s0) * 0.6);
+    o.frequency.linearRampToValueAtTime(base * 0.82, end);
+    const vib = c.createOscillator(), vd = c.createGain(); vib.frequency.value = 4.5 + Math.random() * 2.5; vd.gain.value = base * 0.025;
+    vib.connect(vd).connect(o.frequency);
+    const g = c.createGain(); g.gain.setValueAtTime(0.0001, s0);
+    g.gain.exponentialRampToValueAtTime(1, s0 + a);
+    g.gain.setValueAtTime(1, s0 + (end - s0) * 0.55);
+    g.gain.exponentialRampToValueAtTime(0.0001, end);
+    let node = o.connect(g);
+    if (c.createStereoPanner) { const pan = c.createStereoPanner(); pan.pan.value = Math.random() * 1.6 - 0.8; node = node.connect(pan); }
+    node.connect(mix);
+    o.start(s0); vib.start(s0); o.stop(end + 0.05); vib.stop(end + 0.05);
+  }
+  // body: a soft low roar under the voices
+  const n = c.createBufferSource(); n.buffer = brownNoise(c); n.loop = true;
+  const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
+  const ng = c.createGain(); ng.gain.setValueAtTime(0.0001, t0); ng.gain.exponentialRampToValueAtTime(vol * 1.6, t0 + 0.3); ng.gain.exponentialRampToValueAtTime(0.0001, t0 + dur * 1.1);
+  n.connect(lp).connect(ng).connect(out); n.start(t0, Math.random()); n.stop(t0 + dur * 1.15);
+}
+const CHEERS = { small: { voices: 6, dur: 1.2, vol: 0.035 }, medium: { voices: 11, dur: 1.8, vol: 0.05 }, big: { voices: 18, dur: 3.2, vol: 0.07 } };
+function cheer(size = 'small', vowel = 'ah') {
+  if (muted || !actx) return;
+  const now = performance.now();
+  if (size === 'small' && now - lastCheer < 500) return; // don't stack a dozen little cheers
+  lastCheer = now;
+  try { makeCheer(actx, actx.destination, { ...CHEERS[size], vowel }); } catch {}
+}
 function ensureCrowdAudio() {
   if (crowdAudio) return;
-  try {
-    const c = ac(), mk = (freq, q) => {
-      const src = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
-      src.buffer = noise(); src.loop = true; f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q; g.gain.value = 0;
-      src.connect(f).connect(g).connect(c.destination); src.start(0, Math.random());
-      return { g, f };
-    };
-    crowdAudio = { murmur: mk(500, 0.7), cheer: mk(1300, 0.9) };
-  } catch {}
+  try { crowdAudio = makeCrowdBed(ac(), ac().destination); } catch {}
 }
 function updateCrowdAudio() {
   if (!crowdAudio || !actx) return;
-  const playing = inMatchNow(), fz = lastSnap && lastSnap.fz ? 1 : 0, t = actx.currentTime;
-  const murmur = muted ? 0 : playing ? 0.035 + fz * 0.02 : 0.012;
-  const cheer = muted || !playing ? 0 : Math.min(0.16, crowdExcite * 0.07 + fz * 0.03);
-  crowdAudio.murmur.g.gain.setTargetAtTime(murmur, t, 0.3);
-  crowdAudio.cheer.g.gain.setTargetAtTime(cheer, t, 0.15);
-  crowdAudio.cheer.f.frequency.setTargetAtTime(1100 + crowdExcite * 300, t, 0.2);
+  const playing = inMatchNow(), fz = lastSnap && (lastSnap.fz || lastSnap.ot) ? 1 : 0, t = actx.currentTime;
+  const vol = muted ? 0 : playing ? 0.06 + crowdExcite * 0.035 + fz * 0.03 : 0.02;
+  crowdAudio.g.gain.setTargetAtTime(vol, t, 0.4);
+  crowdAudio.lp.frequency.setTargetAtTime(360 + crowdExcite * 220 + fz * 120, t, 0.4); // excitement opens it up a little
 }
+// Preview hook for testing: render the murmur and a big cheer offline
+window.__crowdPreview = async (seconds = 5) => {
+  const c = new OfflineAudioContext(2, 44100 * seconds, 44100);
+  const bed = makeCrowdBed(c, c.destination); bed.g.gain.value = 0.08;
+  makeCheer(c, c.destination, { ...CHEERS.medium, t0: 0.6 });
+  makeCheer(c, c.destination, { ...CHEERS.big, t0: 2.2 });
+  return c.startRendering();
+};
 
 const sfx = {
   hit: () => { noiseBurst({ dur: 0.12, freq: 1100, q: 0.9, vol: 0.28 }); tone(160, 0.09, 'triangle', 0.07, -70); },
   hurt: () => { noiseBurst({ dur: 0.2, freq: 380, q: 0.7, vol: 0.32 }); tone(95, 0.18, 'sawtooth', 0.06, -40); },
   swing: () => noiseBurst({ dur: 0.16, freq: 2400, q: 1.8, vol: 0.07, sweep: -1700, attack: 0.03 }),
-  roar: () => noiseBurst({ dur: 1.4, freq: 1200, q: 0.6, vol: 0.14, attack: 0.25, sweep: -300 }),
+  roar: () => cheer('small'),
   alarm: () => { tone(880, 0.12, 'square', 0.06); setTimeout(() => tone(660, 0.16, 'square', 0.06), 140); },
   ko: () => { tone(520, 0.12, 'square', 0.06); setTimeout(() => tone(780, 0.2, 'square', 0.06), 90); },
   ability: () => tone(300, 0.25, 'triangle', 0.08, 400),
@@ -1338,7 +1402,7 @@ function handleEvent(e) {
       explodeFx(e.x, e.y, e.z, c, e.id === myId || e.king);
       if (pred && Math.hypot(pred.x - e.x, pred.z - e.z) < 14) shakeT = Math.max(shakeT, e.id === myId ? 0.6 : 0.3);
       crowdExcite = Math.min(2, crowdExcite + (e.king ? 2 : 0.6));
-      if (e.by === myId || e.king || (pred && Math.hypot(pred.x - e.x, pred.z - e.z) < 20)) sfx.roar();
+      if (e.king) cheer('big'); else if (e.by === myId || (pred && Math.hypot(pred.x - e.x, pred.z - e.z) < 20)) cheer(e.by === myId ? 'medium' : 'small');
       if (e.id === myId) {
         deathAt = performance.now(); showYouDied();
         killerId = e.by && e.by !== myId ? e.by : null; killCause = e.cause || null;
@@ -1378,7 +1442,7 @@ function handleEvent(e) {
     case 'overtime':
       flashCenter('OVERTIME!', 2600);
       feed('⚡ Overtime: health halved, damage ×2, speed ×2' + (lobby.mode === 'ktk' ? ', Kings unprotected' : ''));
-      crowdExcite = 2; sfx.roar(); sfx.boom();
+      crowdExcite = 2; cheer('big', 'oh'); sfx.boom();
       break;
     case 'order': {
       const me2 = lobbyPlayer(myId);
@@ -1441,11 +1505,13 @@ function handleEvent(e) {
       finaleOrbit = Math.atan2(camera.position.x, camera.position.z);
       if (document.pointerLockElement) document.exitPointerLock();
       sfx.ko(); setTimeout(() => sfx.zone(), 350); setTimeout(() => tone(1046, 0.6, 'triangle', 0.09), 700);
+      cheer('big');
       break;
     }
     case 'frenzy':
       flashCenter('FINAL FRENZY!', 2200);
       crowdExcite = Math.min(2, crowdExcite + 1);
+      cheer('medium');
       feed('🔥 Last 30 s: double damage, fast power-ups, 3 s respawns');
       sfx.boom();
       break;
