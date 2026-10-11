@@ -174,6 +174,7 @@ function beginCountdown(room) {
   room.projectiles = []; room.events = []; room.results = null; room.suddenIds = null;
   room.contested = false; room.holder = null; room.kingDown = null; room.frenzy = false; room.finale = null;
   room.votes = new Map(); room.crowdT = G.CROWD_PERIOD;
+  room.orders = { red: null, blue: null };
   for (const p of [...room.players.values()]) {
     if (!p.connected) { room.players.delete(p.id); continue; }
     initSim(room, p);
@@ -342,6 +343,7 @@ function damage(room, src, e, amt, kbx = 0, kbz = 0) {
   }
   amt *= 1 - 0.1 * e.pity;
   if (e.shieldT > 0) amt *= 0.5;
+  if (e.isKing && kingGuarded(room, e)) amt *= G.KING_GUARD.DMG; // guarded King shrugs off half
   if (room.frenzy) amt *= 2; // final 30 s of Kill the King
   amt = Math.max(1, Math.round(amt));
   e.hp -= amt;
@@ -357,6 +359,14 @@ function damage(room, src, e, amt, kbx = 0, kbz = 0) {
   if (e.isKing && src) src.score += amt / 10; // chipping the King is worth points
   if (e.hp <= 0) knockOut(room, src, e);
   return true;
+}
+
+function kingGuarded(room, k) {
+  let n = 0;
+  for (const q of room.players.values()) {
+    if (q !== k && q.inMatch && !q.dead && q.team === k.team && Math.hypot(q.x - k.x, q.z - k.z) < G.KING_GUARD.R) n++;
+  }
+  return n >= G.KING_GUARD.MIN;
 }
 
 function knockOut(room, src, e, cause) {
@@ -556,7 +566,7 @@ function explode(room, pr, owner, x, y, z) {
     const dx = e.x - x, dz = e.z - z, d = Math.hypot(dx, dz);
     if (d > pr.splash + G.PLAYER_RADIUS || Math.abs(e.y + 0.9 - y) > 2.5) continue;
     const nx = d > 0.01 ? dx / d : 0, nz = d > 0.01 ? dz / d : 0;
-    damage(room, owner, e, pr.dmg, nx * pr.kb, nz * pr.kb);
+    damage(room, owner, e, pr.dmg * (e.isKing ? 0.5 : 1), nx * pr.kb, nz * pr.kb); // the King shrugs off half of splash damage
   }
 }
 
@@ -638,7 +648,7 @@ function botThink(room, p) {
     if (p.role === 'D') {
       // cover our whole half: chase any enemy on our side, otherwise guard in front of the King
       const kx = own ? own.x : -fwd * G.KING_HOME;
-      goal = { x: kx + fwd * 6, z: (p.lane || 0) * 0.6 };
+      goal = { x: kx + fwd * 4, z: (own ? own.z : 0) + (p.lane || 0) * 0.35 };
       let best = null, bd = Infinity;
       for (const q of visible) {
         if (q.x * fwd > 0) continue; // only enemies in our half
@@ -656,6 +666,28 @@ function botThink(room, p) {
       goal = { x: fwd * 6, z: (p.lane || 0) };
       e = nearestTo(p.x, p.z, 18);
       engage = 18;
+    }
+    // squad order from a human teammate overrides the role's default plan
+    const ord = room.orders && room.orders[p.team];
+    if (ord && ord.until > room.time) {
+      const leader = ord.leaderId && room.players.get(ord.leaderId);
+      if (ord.cmd === 'attack' && p.role !== 'D') { // defenders stay home and keep the King guarded
+        goal = foe && !foe.dead ? { x: foe.x, z: foe.z + (p.lane || 0) * 0.3 } : { x: fwd * G.KING_HOME, z: 0 };
+        e = foe && !foe.dead && Math.hypot(foe.x - p.x, foe.z - p.z) < 16 ? foe : nearestTo(p.x, p.z, 8);
+        engage = 16;
+      } else if (ord.cmd === 'defend') {
+        const kx = own ? own.x : -fwd * G.KING_HOME, kz = own ? own.z : 0;
+        goal = { x: kx + fwd * 2, z: kz + (p.lane || 0) * 0.22 }; // hug the King so he stays guarded
+        e = own ? nearestTo(own.x, own.z, 14) : null;
+        engage = 30;
+      } else if (ord.cmd === 'follow' && leader && !leader.dead && leader.inMatch) {
+        goal = { x: leader.x - fwd * 2.5, z: leader.z + (p.lane || 0) * 0.35 };
+        e = nearestTo(leader.x, leader.z, 11);
+        engage = 20;
+      } else if (ord.cmd === 'focus') {
+        const tg = room.players.get(ord.targetId);
+        if (tg && tg.inMatch && !tg.dead && tg.invisT <= 0) { goal = { x: tg.x, z: tg.z }; e = tg; engage = 60; }
+      }
     }
     // bots respect their zone (humans don't)
     if (p.role === 'D' && goal.x * fwd > -1) goal.x = -fwd;
@@ -1111,8 +1143,13 @@ function sendSnapshot(room) {
     ev: room.events,
   };
   if (room.mode === 'ktk') {
+    snap.ord = {};
+    for (const t of ['red', 'blue']) {
+      const o = room.orders && room.orders[t];
+      snap.ord[t] = o && o.until > room.time ? { c: o.cmd, by: o.by, t: r2(o.until - room.time), tg: o.targetId } : null;
+    }
     snap.kg = {};
-    for (const t of ['red', 'blue']) { const k = kingOf(room, t); if (k) snap.kg[t] = { id: k.id, hp: Math.ceil(Math.max(0, k.hp)), mhp: k.maxHp }; }
+    for (const t of ['red', 'blue']) { const k = kingOf(room, t); if (k) snap.kg[t] = { id: k.id, hp: Math.ceil(Math.max(0, k.hp)), mhp: k.maxHp, gd: !k.dead && kingGuarded(room, k) }; }
   }
   for (const p of room.players.values()) {
     if (!p.inMatch) continue;
@@ -1319,6 +1356,35 @@ io.on('connection', socket => {
     if (now - (me.lastEmote || 0) < 2000) return;
     me.lastEmote = now;
     evLater(room, { t: 'emote', id: me.id, e: k });
+  });
+
+  // squad commands
+  socket.on('order', cmd => {
+    if (!me || room.mode !== 'ktk' || !me.inMatch || !G.ORDERS.includes(cmd) || room.finale) return;
+    if (!['countdown', 'playing', 'sudden'].includes(room.phase)) return;
+    const now = Date.now();
+    if (now - (me.lastOrder || 0) < G.ORDER_COOLDOWN * 1000) return;
+    room.orders = room.orders || { red: null, blue: null };
+    if (cmd === 'clear') {
+      room.orders[me.team] = null;
+    } else {
+      let targetId = null;
+      if (cmd === 'focus') {
+        // the enemy closest to your crosshair point, else the nearest enemy you're facing
+        const foes = enemiesOf(room, me).filter(q => q.invisT <= 0);
+        let best = null, bd = 6;
+        if (me.aim) for (const q of foes) { const dd = Math.hypot(q.x - me.aim.x, q.z - me.aim.z); if (dd < bd) { bd = dd; best = q; } }
+        if (!best) best = lockTarget(room, me, 30, 35);
+        if (!best) return;
+        targetId = best.id;
+      }
+      room.orders[me.team] = {
+        cmd, by: me.id, targetId, leaderId: cmd === 'follow' ? me.id : null,
+        until: room.time + (cmd === 'focus' ? G.FOCUS_TIME : G.ORDER_TIME),
+      };
+    }
+    me.lastOrder = now;
+    evLater(room, { t: 'order', team: me.team, c: cmd, by: me.id });
   });
 
   socket.on('crowdVote', idx => {

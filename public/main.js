@@ -1000,7 +1000,8 @@ function resetMatchState() {
   leaderId = null;
   $('#finaleBanner').classList.add('hidden');
   kingWarned = { half: false, quarter: false }; kingAlertUntil = 0; killerId = null; killText = '';
-  $('#emoteWheel').classList.add('hidden');
+  $('#emoteWheel').classList.add('hidden'); $('#orderWheel').classList.add('hidden');
+  focusMarker.visible = false;
   $('#hud').classList.remove('finale');
   document.body.classList.remove('finale');
   $('#feed').innerHTML = '';
@@ -1100,6 +1101,22 @@ addEventListener('keydown', e => {
   if (e.code === 'Space' && inMatchNow()) e.preventDefault();
 });
 const EMOTES = { wave: '👋', cheer: '🎉', taunt: '😤', dance: '🕺' };
+// ---------- squad orders (Kill the King) ----------
+const ORDER_INFO = { attack: ['⚔', 'Attack!'], defend: ['🛡', 'Defend the King!'], follow: ['🚩', 'Follow me!'], focus: ['🎯', 'Focus target!'], clear: ['↺', 'Back to formation'] };
+const ORDER_KEYS = { KeyZ: 'attack', KeyX: 'defend', KeyC: 'follow', KeyV: 'focus', KeyB: 'clear' };
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || !inMatchNow() || !lobby || lobby.mode !== 'ktk' || !ORDER_KEYS[e.code]) return;
+  socket.emit('order', ORDER_KEYS[e.code]);
+});
+$('#tOrder').addEventListener('pointerdown', e => { e.preventDefault(); $('#orderWheel').classList.toggle('hidden'); $('#emoteWheel').classList.add('hidden'); });
+$('#orderWheel').addEventListener('pointerdown', e => {
+  const b = e.target.closest('[data-order]'); if (!b) return;
+  e.preventDefault(); socket.emit('order', b.dataset.order); $('#orderWheel').classList.add('hidden');
+});
+// marker over the focused enemy
+const focusMarker = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.08, 6, 20), new THREE.MeshBasicMaterial({ color: 0xff3b30 }));
+focusMarker.visible = false; scene.add(focusMarker);
+let orderToastT = 0;
 const EMOTE_KEYS = { Digit1: 'wave', Digit2: 'cheer', Digit3: 'taunt', Digit4: 'dance' };
 addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT' || !inMatchNow() || !EMOTE_KEYS[e.code]) return;
@@ -1355,6 +1372,28 @@ function handleEvent(e) {
     case 'sudden':
       flashCenter('SUDDEN DEATH', 1600);
       break;
+    case 'order': {
+      const me2 = lobbyPlayer(myId);
+      if (!me2 || e.team !== me2.team) break; // only your own team hears your orders
+      const [icon, label] = ORDER_INFO[e.c] || ['', ''];
+      const who = e.by === myId ? 'You' : (lobbyPlayer(e.by) || {}).name || 'A teammate';
+      $('#orderToast').innerHTML = `${icon} ${label.toUpperCase()}<small>${esc(who)} ${e.by === myId ? 'gave' : 'gives'} the order</small>`;
+      $('#orderToast').style.color = hex(G.TEAM_COLORS[me2.team]);
+      $('#orderToast').classList.remove('hidden'); orderToastT = performance.now() + 1600;
+      $('#orderToast').style.animation = 'none'; void $('#orderToast').offsetWidth; $('#orderToast').style.animation = '';
+      feed(`📣 ${nameTag(e.by)}: ${icon} ${label}`);
+      // your bots flash the order over their heads so you can see them obey
+      for (const p of lobby.players) {
+        if (!p.isBot || p.isKing || p.team !== me2.team) continue;
+        const bc = chars.get(p.id); if (!bc) continue;
+        const em = bc.tag.querySelector('.emote');
+        em.textContent = icon; em.style.animation = 'none'; void em.offsetWidth; em.style.animation = '';
+        clearTimeout(bc.orderClear); bc.orderClear = setTimeout(() => { if (!bc.emote) em.textContent = ''; }, 1800);
+      }
+      tone(392, 0.12, 'square', 0.06); setTimeout(() => tone(523, 0.18, 'square', 0.06), 110);
+      crowdExcite = Math.min(2, crowdExcite + 0.2);
+      break;
+    }
     case 'emote': {
       if (ch) {
         ch.emote = { k: e.e, t: 2, age: 0 };
@@ -1904,6 +1943,9 @@ function updateHud(now) {
     for (const [t, el, txt] of [['red', '#kbRed', '#kbRedHp'], ['blue', '#kbBlue', '#kbBlueHp']]) {
       const k = s.kg[t];
       $(el).style.width = k ? (k.hp / k.mhp * 100) + '%' : '0%';
+      $(t === 'red' ? '#kgRed' : '#kgBlue').classList.toggle('hidden', !(k && k.gd));
+      const kc = k && chars.get(k.id);
+      if (kc) { if (!kc.dome) { kc.dome = new THREE.Mesh(new THREE.SphereGeometry(2.1, 20, 14, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.18, depthWrite: false, side: THREE.DoubleSide })); kc.model.group.add(kc.dome); } kc.dome.visible = !!k.gd; }
       $(txt).textContent = k ? k.hp : 0;
     }
   }
@@ -1919,6 +1961,21 @@ function updateHud(now) {
   const ownK = alertOn && s.kg && s.kg[lp.team] && chars.get(s.kg[lp.team].id);
   if (ownK && ownK.state) placeArrow($('#kingArrow'), ownK.state.x, ownK.state.z); else $('#kingArrow').style.display = 'none';
   $('#emoteHint').style.display = me.dead || s.fin ? 'none' : '';
+  // squad orders HUD
+  $('#squadHint').classList.toggle('hidden', !ktk || me.dead || !!s.fin);
+  $('#tOrder').classList.toggle('hidden', !ktk || !!s.fin);
+  const ord = ktk && s.ord && s.ord[lp.team];
+  $('#orderBar').classList.toggle('hidden', !ord || !!s.fin);
+  if (ord) {
+    const [icon, label] = ORDER_INFO[ord.c];
+    const by = ord.by === myId ? 'you' : (lobbyPlayer(ord.by) || {}).name || 'a teammate';
+    const tgt = ord.c === 'focus' && ord.tg ? ` → ${esc((lobbyPlayer(ord.tg) || {}).name || '?')}` : '';
+    $('#orderBar').innerHTML = `📣 ${icon} ${label}${tgt} · ${Math.ceil(ord.t)}s · by ${esc(by)}`;
+  }
+  if (now > orderToastT) $('#orderToast').classList.add('hidden');
+  const fc2 = ord && ord.c === 'focus' && ord.tg && chars.get(ord.tg);
+  focusMarker.visible = !!(fc2 && fc2.model.group.visible && !s.fin);
+  if (focusMarker.visible) { const fp = fc2.model.group.position; focusMarker.position.set(fp.x, fp.y + 3.2 + Math.sin(now / 160) * 0.12, fp.z); focusMarker.rotation.y += 0.06; focusMarker.rotation.x = Math.PI / 2; }
   $('#killCam').classList.toggle('hidden', !me.dead || !!s.fin || !killText);
   const kmc = me.dead && killerId && chars.get(killerId);
   killMarker.visible = !!(kmc && kmc.model.group.visible);

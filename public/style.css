@@ -524,3 +524,17 @@ body.touch .emote-hint { display: none; }
 .emote-wheel { position: absolute; right: calc(186px + env(safe-area-inset-right)); bottom: calc(100px + env(safe-area-inset-bottom)); display: flex; gap: 6px; background: rgba(18,12,8,0.75); padding: 6px; border-radius: 30px; }
 .emote-wheel button { width: 46px; height: 46px; border-radius: 50%; border: 0; background: rgba(255,255,255,0.12); font-size: 24px; touch-action: none; }
 @media (max-height: 520px) { .king-alert { top: 62px; font-size: 12px; } }
+
+/* ---------- v10: squad commands ---------- */
+.order-bar { position: absolute; top: 112px; left: 50%; transform: translateX(-50%); background: rgba(18,12,8,0.78); border: 1px solid var(--line); padding: 4px 12px; border-radius: 99px; font-size: 13px; font-weight: 700; white-space: nowrap; }
+.order-toast { position: absolute; top: 40%; left: 0; right: 0; text-align: center; font-family: 'Cinzel', serif; font-weight: 900; font-size: clamp(26px, 5vw, 46px); text-shadow: 0 3px 0 rgba(0,0,0,0.6), 0 0 20px rgba(0,0,0,0.5); animation: slam .5s cubic-bezier(.2,1.6,.4,1) both; }
+.order-toast small { display: block; font-family: 'Rubik', sans-serif; font-size: 14px; font-weight: 700; color: var(--sand); }
+.squad-hint { position: absolute; left: 12px; bottom: 16px; font-size: 12px; background: rgba(18,12,8,0.6); padding: 5px 9px; border-radius: 8px; color: var(--sand-2); max-width: 300px; }
+.squad-hint b { color: var(--bronze-2); }
+body.touch .squad-hint { display: none; }
+.tbtn-order { width: 52px; height: 52px; right: calc(186px + env(safe-area-inset-right)); bottom: calc(108px + env(safe-area-inset-bottom)); font-size: 22px; }
+.order-wheel { position: absolute; right: calc(100px + env(safe-area-inset-right)); bottom: calc(214px + env(safe-area-inset-bottom)); display: flex; gap: 5px; background: rgba(18,12,8,0.8); padding: 6px; border-radius: 14px; }
+.order-wheel button { width: 58px; height: 52px; border-radius: 10px; border: 0; background: rgba(255,255,255,0.12); color: #fff; font-size: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; touch-action: none; }
+.order-wheel button span { font-size: 9px; font-weight: 700; margin-top: 2px; }
+@media (max-height: 520px) { .order-bar { top: 82px; font-size: 11px; } }
+.kg-shield { font-style: normal; margin-right: 3px; }

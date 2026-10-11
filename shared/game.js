@@ -175,8 +175,15 @@ export const FRENZY_RESPAWN = 3;
 export const FRENZY_PICKUP_RATE = 5;
 // King's aura (always on): allies within HEAL_R heal HEAL hp/s, allies within SPEED_R move SPEED x faster
 export const KING_AURA = { HEAL_R: 5, HEAL: 4, SPEED_R: 10, SPEED: 1.2 };
+// King's Guard: with GUARD_MIN+ teammates within GUARD_R m, the King takes GUARD_DMG of normal damage
+export const KING_GUARD = { R: 6, MIN: 2, DMG: 0.3 };
 // The Crowd: knocked-out players vote where the next bonus power-up drops, every CROWD_PERIOD s
 export const CROWD_PERIOD = 12;
+// Squad commands (Kill the King): any human can order their team's bots; the latest order wins
+export const ORDERS = ['attack', 'defend', 'follow', 'focus', 'clear'];
+export const ORDER_TIME = 20;        // seconds an order lasts
+export const FOCUS_TIME = 12;
+export const ORDER_COOLDOWN = 2.5;   // per player
 // Match finale: the winning moment plays in slow motion before the results screen
 export const FINALE_TIME = 4.5;   // real seconds
 export const FINALE_SLOW = 0.25;  // game speed during the finale
