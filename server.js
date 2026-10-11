@@ -81,7 +81,7 @@ function rebalanceTeams(room) {
 function lobbyState(room) {
   return {
     code: room.code, hostId: room.hostId, mode: room.mode, botLevel: room.botLevel, phase: room.phase, results: room.results,
-    map: room.map.key,
+    map: room.map.key, layout: room.layout || null,
     draft: room.phase === 'draft' ? room.draft : null, draftLeft: room.phase === 'draft' ? room.draftT : 0,
     draftReady: room.phase === 'draft' ? [...room.draftReady] : [],
     players: [...room.players.values()].map(p => ({
@@ -155,7 +155,9 @@ function spawn(room, p, initial) {
 }
 
 function startMatch(room) {
-  room.map = G.mapFor(room.mode);
+  const base = G.mapFor(room.mode);
+  room.layout = G.randomLayout(base);
+  room.map = G.withLayout(base, room.layout);
   if (room.mode === 'ktk') return startDraft(room);
   for (const p of room.players.values()) { p.role = null; p.lane = 0; }
   beginCountdown(room);
@@ -371,6 +373,13 @@ function knockOut(room, src, e, cause) {
     if (src.cls === 'gladiator' && !src.dead) src.hp = Math.min(src.maxHp, src.hp + 30);
   }
   if (e.isKing) { room.kingDown = e.team; e.respawnT = Infinity; }
+  // knocked-out bots join the crowd vote: mostly for a drop on their own side
+  if (e.isBot && !e.isKing && room.votes) {
+    const r = Math.random(), n = room.map.voteSpots.length;
+    let pick = (Math.random() * n) | 0;
+    if (room.mode === 'ktk') pick = r < 0.65 ? (e.team === 'red' ? 0 : 2) : r < 0.9 ? 1 : (e.team === 'red' ? 2 : 0);
+    room.votes.set(e.id, pick);
+  }
   ev(room, { t: 'ko', id: e.id, by: src ? src.id : null, x: e.x, y: e.y, z: e.z, cause, king: !!e.isKing });
 }
 
@@ -951,7 +960,7 @@ function updateCrowd(room, dt) {
   const top = Math.max(...tally.values());
   const winners = [...tally.keys()].filter(k => tally.get(k) === top);
   const idx = winners[(Math.random() * winners.length) | 0];
-  const spot = room.map.pickups[idx];
+  const spot = room.map.voteSpots[idx];
   const k = randKind();
   room.pickups.push({ id: nextId++, x: spot.x, z: spot.z + 1.6, k, active: true, crowd: true, respawnT: 0 });
   ev(room, { t: 'crowd', k, spot: idx, votes: room.votes.size });
@@ -1097,7 +1106,7 @@ function sendSnapshot(room) {
     ts: Object.fromEntries(Object.entries(room.teamScore).map(([k, v]) => [k, Math.floor(v)])),
     mt: room.meteors.map(m => ({ id: m.id, x: r2(m.x), z: r2(m.z), r: r2(m.r), mr: r2(m.maxR), f: r2(Math.max(0, m.t - G.METEOR_GROW)) })),
     pk: room.pickups.filter(pk => pk.active).map(pk => ({ id: pk.id, k: pk.k, x: pk.x, z: pk.z, c: pk.crowd ? 1 : 0 })),
-    cv: { t: r2(Math.max(0, room.crowdT || 0)), n: room.map.pickups.map((_, i) => [...room.votes.values()].filter(v => v === i).length) },
+    cv: { t: r2(Math.max(0, room.crowdT || 0)), n: room.map.voteSpots.map((_, i) => [...room.votes.values()].filter(v => v === i).length) },
     p: [], pr: room.projectiles.map(pr => ({ id: pr.id, k: pr.kind, x: r2(pr.x), y: r2(pr.y), z: r2(pr.z) })),
     ev: room.events,
   };
@@ -1219,7 +1228,7 @@ io.on('connection', socket => {
   socket.on('setMode', mode => {
     if (!isHost() || !['ffa', 'teams', 'ktk'].includes(mode) || room.phase !== 'lobby') return;
     room.mode = mode;
-    room.map = G.mapFor(mode);
+    room.map = G.mapFor(mode); room.layout = null;
     if (mode === 'ktk') for (const p of [...room.players.values()]) if (p.isBot) room.players.delete(p.id); // bots fill spots automatically
     if (teamMode(room)) rebalanceTeams(room);
     broadcastLobby(room);
@@ -1304,7 +1313,7 @@ io.on('connection', socket => {
   });
 
   socket.on('crowdVote', idx => {
-    if (!me || !me.inMatch || !me.dead || !room.map.pickups[idx]) return;
+    if (!me || !me.inMatch || !me.dead || !room.map.voteSpots[idx]) return;
     room.votes.set(me.id, idx);
   });
 

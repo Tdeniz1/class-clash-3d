@@ -186,6 +186,8 @@ export const MAPS = {
   arena: {
     key: 'arena', halfX: ARENA.halfX, halfZ: ARENA.halfZ, mounds: MOUNDS, pillars: PILLARS, walls: WALLS,
     zones: ZONES, spawns: SPAWNS, pickups: PICKUP_SPOTS,
+    // where the crowd can vote to drop a bonus power-up
+    voteSpots: [{ x: -14, z: 6, name: 'West side' }, { x: 0, z: -6.5, name: 'Middle' }, { x: 14, z: -6, name: 'East side' }],
   },
   // Long pitch for Kill the King (x = length). Red defends x < 0, Blue defends x > 0.
   field: {
@@ -203,9 +205,65 @@ export const MAPS = {
     ],
     zones: [], spawns: [],
     pickups: [{ x: -18, z: 0, name: 'Red half' }, { x: 0, z: 7.5, name: 'Midfield north' }, { x: 0, z: -7.5, name: 'Midfield south' }, { x: 18, z: 0, name: 'Blue half' }],
+    voteSpots: [{ x: -18, z: 5, name: 'Red side' }, { x: 0, z: 7.5, name: 'Middle' }, { x: 18, z: -5, name: 'Blue side' }],
   },
 };
 export const mapFor = mode => (mode === 'ktk' ? MAPS.field : MAPS.arena);
+
+// A map with a match's random obstacle layout swapped in
+export function withLayout(base, layout) {
+  return layout ? { ...base, pillars: layout.pillars, walls: layout.walls, layoutId: layout.id } : base;
+}
+
+// Random obstacles for one match. The field is mirrored across halfway (fair for both teams);
+// the arena is point-symmetric. Obstacles keep clear of spawns, Kings, zones and power-up spots.
+export function randomLayout(base, rnd = Math.random) {
+  const keepClear = [
+    ...base.zones.map(z => ({ x: z.x, z: z.z, r: ZONE_RADIUS + 0.6 })),
+    ...base.spawns.map(s => ({ x: s.x, z: s.z, r: 2.5 })),
+    ...base.pickups.map(s => ({ x: s.x, z: s.z, r: 2 })),
+    ...(base.voteSpots || []).map(s => ({ x: s.x, z: s.z, r: 2.2 })),
+    ...base.mounds.map(m => ({ x: m.x, z: m.z, r: m.rBot + 0.6 })),
+  ];
+  const field = base.key === 'field';
+  if (field) for (const side of [-1, 1]) {
+    keepClear.push({ x: side * KING_HOME, z: 0, r: 9 });
+    for (const line of [ROLE_SPAWN.D, ROLE_SPAWN.M, ROLE_SPAWN.A, RESPAWN_LINE]) keepClear.push({ x: side * line, z: 0, r: 1.5, band: true });
+  }
+  const mirror = (x, z) => (field ? [-x, z] : [-x, -z]);
+  const placed = [];
+  const free = (x, z, r) => {
+    if (Math.abs(x) > base.halfX - 2.5 || Math.abs(z) > base.halfZ - 2.5) return false;
+    for (const k of keepClear) {
+      if (k.band ? Math.abs(x - k.x) < r + 0.8 : Math.hypot(x - k.x, z - k.z) < k.r + r) return false;
+    }
+    for (const p of placed) if (Math.hypot(x - p.x, z - p.z) < p.r + r + (field ? 2.5 : 1.3)) return false;
+    return true;
+  };
+  const pillars = [], walls = [];
+  const nPillars = field ? 4 + ((rnd() * 3) | 0) : 3 + ((rnd() * 2) | 0);
+  const nWalls = field ? 2 + ((rnd() * 2) | 0) : 1 + ((rnd() * 2) | 0);
+  for (let i = 0, tries = 0; i < nWalls && tries < 1500; tries++) {
+    const len = field ? 3 + rnd() * 2.5 : 2.5 + rnd() * 1.5, along = rnd() < 0.5;
+    const w = along ? len : 0.8, d = along ? 0.8 : len;
+    const x = field ? -(3 + rnd() * (base.halfX - 8)) : (rnd() * 2 - 1) * (base.halfX - 4);
+    const z = (rnd() * 2 - 1) * (base.halfZ - 4);
+    const [mx, mz] = mirror(x, z), r = len / 2 + 0.5;
+    if (!free(x, z, r) || !free(mx, mz, r) || Math.hypot(x - mx, z - mz) < len + 1) continue;
+    for (const [px, pz] of [[x, z], [mx, mz]]) { walls.push({ x: +px.toFixed(2), z: +pz.toFixed(2), w: +w.toFixed(2), d: +d.toFixed(2), h: 1.3 }); placed.push({ x: px, z: pz, r }); }
+    i++;
+  }
+  for (let i = 0, tries = 0; i < nPillars && tries < 400; tries++) {
+    const x = field ? -(2 + rnd() * (base.halfX - 6)) : (rnd() * 2 - 1) * (base.halfX - 3);
+    const z = (rnd() * 2 - 1) * (base.halfZ - 3);
+    const [mx, mz] = mirror(x, z);
+    if (!free(x, z, 0.8) || !free(mx, mz, 0.8) || Math.hypot(x - mx, z - mz) < 3) continue;
+    for (const [px, pz] of [[x, z], [mx, mz]]) { pillars.push({ x: +px.toFixed(2), z: +pz.toFixed(2), r: 0.8 }); placed.push({ x: px, z: pz, r: 0.8 }); }
+    i++;
+  }
+  if (field && rnd() < 0.6) walls.push({ x: 0, z: +((rnd() * 2 - 1) * 4).toFixed(2), w: 0.8, d: +(3 + rnd() * 2).toFixed(2), h: 1.3 }); // optional halfway cover
+  return { id: Math.floor(rnd() * 1e9), pillars, walls };
+}
 
 export function groundHeight(x, z, map = MAPS.arena) {
   let h = 0;

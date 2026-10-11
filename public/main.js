@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import * as G from '/shared/game.js';
 
 const $ = s => document.querySelector(s);
@@ -212,44 +213,103 @@ function buildFieldMarkings(map) {
   }
 }
 
-// ---------- crowd: instanced fans on every tier, bouncing harder after knockouts ----------
-let crowd = null, crowdExcite = 0, crowdFrame = 0;
-const SHIRTS = [0xb5302a, 0xe3a857, 0x3a86ff, 0x2ecc71, 0xf4f1e8, 0x7b4bc4, 0xff8fab, 0x2b2016];
-const SKINS = [0xf1c27d, 0xe0ac69, 0xc68642, 0x8d5524, 0xffdbac];
-function buildCrowd(map, hx, hz) {
-  const spots = [];
-  for (let t = 0; t < 3; t++) {
-    const off = 3 + t * 3.2, h = 3 + t * 2.6, L = hx + off, W = hz + off;
-    for (let x = -L + 0.8; x <= L - 0.8; x += 1.1) for (const sz of [-1, 1]) if (Math.random() < 0.82) spots.push([x + (Math.random() - 0.5) * 0.3, h, sz * W + (Math.random() - 0.5) * 0.8]);
-    for (let z = -W + 1.8; z <= W - 1.8; z += 1.1) for (const sx of [-1, 1]) if (Math.random() < 0.82) spots.push([sx * L + (Math.random() - 0.5) * 0.8, h, z]);
-  }
-  const n = spots.length;
-  const body = new THREE.InstancedMesh(new THREE.BoxGeometry(0.55, 0.75, 0.4), new THREE.MeshLambertMaterial(), n);
-  const head = new THREE.InstancedMesh(new THREE.BoxGeometry(0.34, 0.34, 0.34), new THREE.MeshLambertMaterial(), n);
-  const col = new THREE.Color();
-  const fans = spots.map(([x, y, z], i) => {
-    // Kill the King: each team's fans sit behind their own half
-    let shirt = SHIRTS[(Math.random() * SHIRTS.length) | 0];
-    if (map.key === 'field' && Math.random() < 0.7) shirt = x < 0 ? G.TEAM_COLORS.red : G.TEAM_COLORS.blue;
-    body.setColorAt(i, col.setHex(shirt));
-    head.setColorAt(i, col.setHex(SKINS[(Math.random() * SKINS.length) | 0]));
-    return { x, y, z, phase: Math.random() * 6.28, speed: 5 + Math.random() * 5, hype: 0.4 + Math.random() };
-  });
-  arenaGroup.add(body, head);
-  crowd = { body, head, fans, dummy: new THREE.Object3D() };
-  animateCrowd(performance.now(), 0, true);
+// ---------- crowd: thousands of little people in the stands, animated on the GPU ----------
+// Each fan is legs + torso + arms + head + hair (instanced meshes with static positions).
+// A shader bounces them and swaps arms-down for arms-up as the crowd gets excited.
+let crowd = null, crowdExcite = 0;
+const crowdU = { uTime: { value: 0 }, uAmp: { value: 0.05 }, uExcite: { value: 0.1 } };
+const SHIRTS = [0xb5302a, 0xe3a857, 0x3a86ff, 0x2ecc71, 0xf4f1e8, 0x7b4bc4, 0xff8fab, 0x2b2016, 0x14213d, 0xfca311];
+const PANTS = [0x22223b, 0x3d405b, 0x4a4e69, 0x2b2d42, 0x5c4033, 0x1d3557];
+const SKINS = [0xf1c27d, 0xe0ac69, 0xc68642, 0x8d5524, 0xffdbac, 0x6b4423];
+const HAIR = [0x1b1b1b, 0x3b2314, 0x6f4e37, 0xd4a017, 0x8b8b8b, 0xa52a2a];
+const pickC = a => a[(Math.random() * a.length) | 0];
+
+// One merged fan model: legs, torso, two arms, head (top face = hair). aPart tells the shader which color to use.
+function fanGeometry() {
+  const part = (g, id, hairTop) => {
+    const n = g.attributes.position.count, a = new Float32Array(n), nrm = g.attributes.normal;
+    for (let i = 0; i < n; i++) a[i] = hairTop && nrm.getY(i) > 0.5 ? 4 : id;
+    g.setAttribute('aPart', new THREE.BufferAttribute(a, 1));
+    return g;
+  };
+  return mergeGeometries([
+    part(boxAt(0.36, 0.46, 0.22, 0, 0.23, 0), 0),          // legs
+    part(boxAt(0.5, 0.56, 0.3, 0, 0.74, 0), 1),            // torso
+    part(boxAt(0.13, 0.5, 0.15, -0.32, 0.73, 0), 2),       // left arm (hangs from the shoulder)
+    part(boxAt(0.13, 0.5, 0.15, 0.32, 0.73, 0), 2),        // right arm
+    part(boxAt(0.32, 0.32, 0.32, 0, 1.19, 0), 3, true),    // head, hair on top
+  ]);
 }
-function animateCrowd(now, dt, force) {
+
+function crowdMaterial() {
+  const m = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  m.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, crowdU);
+    sh.vertexShader = `attribute float aPart;
+      attribute vec4 aFan; attribute vec3 aShirt; attribute vec3 aPants; attribute vec3 aSkin; attribute vec3 aHair;
+      uniform float uTime; uniform float uAmp; uniform float uExcite;
+      varying vec3 vFan;
+      ` + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+        vFan = aPart < 0.5 ? aPants : aPart < 2.5 ? aShirt : aPart < 3.5 ? aSkin : aHair;
+        if (aPart > 1.5 && aPart < 2.5) {
+          // excited fans swing their arms up from the shoulder and wave
+          float side = sign(transformed.x);
+          float raise = step(aFan.w, uExcite) * (0.88 + 0.12 * sin(uTime * aFan.y * 1.3 + aFan.x));
+          vec2 piv = vec2(0.32 * side, 0.98);
+          vec2 rel = transformed.xy - piv;
+          float th = side * raise * 2.75;
+          float c = cos(th), s = sin(th);
+          transformed.xy = piv + vec2(c * rel.x - s * rel.y, s * rel.x + c * rel.y);
+        }
+        transformed.y += max(0.0, sin(uTime * aFan.y + aFan.x)) * uAmp * aFan.z;`);
+    sh.fragmentShader = 'varying vec3 vFan;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.rgb *= vFan;');
+  };
+  return m;
+}
+const boxAt = (w, h, d, x, y, z) => { const g = new THREE.BoxGeometry(w, h, d); g.translate(x, y, z); return g; };
+
+function buildCrowd(map, hx, hz) {
+  const spots = [], density = isTouch ? 0.5 : 0.85;
+  for (let t = 0; t < 3; t++) {
+    const off = 3 + t * 3.2, h = 3 + t * 2.6;
+    for (const row of [-0.65, 0.65]) {
+      const L = hx + off + row, W = hz + off + row;
+      for (let x = -L + 0.6; x <= L - 0.6; x += 0.75) for (const sz of [-1, 1]) if (Math.random() < density) spots.push([x + (Math.random() - 0.5) * 0.2, h, sz * W]);
+      for (let z = -W + 1.6; z <= W - 1.6; z += 0.75) for (const sx of [-1, 1]) if (Math.random() < density) spots.push([sx * L, h, z + (Math.random() - 0.5) * 0.2]);
+    }
+  }
+  const n = spots.length, geo = fanGeometry();
+  const attr = k => { const a = new THREE.InstancedBufferAttribute(new Float32Array(n * k), k); return a; };
+  const A = { aFan: attr(4), aShirt: attr(3), aPants: attr(3), aSkin: attr(3), aHair: attr(3) };
+  for (const [k, a] of Object.entries(A)) geo.setAttribute(k, a);
+  const mesh = new THREE.InstancedMesh(geo, crowdMaterial(), n);
+  mesh.frustumCulled = false;
+  const d = new THREE.Object3D(), col = new THREE.Color();
+  const setCol = (a, i, hexv) => { col.setHex(hexv); a.setXYZ(i, col.r, col.g, col.b); };
+  spots.forEach(([x, y, z], i) => {
+    d.position.set(x, y, z);
+    d.rotation.set(0, Math.atan2(x, z), 0); // face the arena
+    d.scale.setScalar(0.9 + Math.random() * 0.25);
+    d.updateMatrix();
+    mesh.setMatrixAt(i, d.matrix);
+    // Kill the King: each team's fans sit behind their own half
+    let shirt = pickC(SHIRTS);
+    if (map.key === 'field' && Math.random() < 0.7) shirt = x < 0 ? G.TEAM_COLORS.red : G.TEAM_COLORS.blue;
+    setCol(A.aShirt, i, shirt); setCol(A.aPants, i, pickC(PANTS)); setCol(A.aSkin, i, pickC(SKINS)); setCol(A.aHair, i, pickC(HAIR));
+    // phase, bounce speed, energy, how excited the crowd must be before this fan throws arms up
+    A.aFan.setXYZW(i, Math.random() * 6.28, 5 + Math.random() * 5, 0.4 + Math.random(), Math.random());
+  });
+  arenaGroup.add(mesh);
+  crowd = { mesh, n };
+}
+
+function animateCrowd(now, dt) {
   if (!crowd) return;
   crowdExcite = Math.max(0, crowdExcite - dt * 0.35);
-  if (!force && isTouch && (crowdFrame++ & 1)) return; // phones: update every other frame
-  const amp = 0.05 + (lastSnap && lastSnap.fz ? 0.22 : 0) + crowdExcite * 0.32, t = now / 1000, d = crowd.dummy;
-  crowd.fans.forEach((f, i) => {
-    const jump = Math.max(0, Math.sin(t * f.speed + f.phase)) * amp * f.hype;
-    d.position.set(f.x, f.y + 0.38 + jump, f.z); d.updateMatrix(); crowd.body.setMatrixAt(i, d.matrix);
-    d.position.y += 0.56; d.updateMatrix(); crowd.head.setMatrixAt(i, d.matrix);
-  });
-  crowd.body.instanceMatrix.needsUpdate = true; crowd.head.instanceMatrix.needsUpdate = true;
+  const fz = lastSnap && lastSnap.fz ? 1 : 0;
+  crowdU.uTime.value = now / 1000;
+  crowdU.uAmp.value = 0.05 + fz * 0.2 + crowdExcite * 0.3;
+  crowdU.uExcite.value = 0.08 + fz * 0.25 + crowdExcite * 0.45; // share of fans with arms up
 }
 
 // ---------- zone ----------
@@ -293,9 +353,10 @@ function setNextZone(i) {
   nextShownIdx = i;
 }
 
-function setMap(key) {
-  const m = G.MAPS[key] || G.MAPS.arena;
-  if (m === curMap && arenaGroup.children.length) return;
+function setMap(key, layout) {
+  const base = G.MAPS[key] || G.MAPS.arena;
+  if (base.key === curMap.key && (curMap.layoutId || null) === (layout ? layout.id : null) && arenaGroup.children.length) return;
+  const m = G.withLayout(base, layout);
   curMap = m;
   arenaGroup.clear(); obstacles.length = 0; crowd = null;
   buildArena(m);
@@ -863,7 +924,7 @@ socket.on('lobby', L => {
   lobby = L;
   if (!myId || !lobbyPlayer(myId)) return;
   const inMatch = ['countdown', 'playing', 'sudden'].includes(L.phase);
-  setMap(L.map);
+  setMap(L.map, L.layout);
   if (L.phase === 'draft') {
     if (prevPhase !== 'draft') { resetMatchState(); selSlot = null; }
     draftDeadline = performance.now() + L.draftLeft * 1000;
@@ -1225,7 +1286,7 @@ function handleEvent(e) {
       break;
     }
     case 'crowd': {
-      const spot = curMap.pickups[e.spot];
+      const spot = curMap.voteSpots[e.spot];
       feed(`🗳 The crowd dropped ${{ heal: '💚 health', power: '⚔ 2× damage', speed: '⚡ speed' }[e.k]} at ${spot ? spot.name : 'the arena'}`);
       if (spot) ringFx(spot.x, gh(spot.x, spot.z), spot.z + 1.6, 3, 0xc77dff, 0.8);
       myVote = null;
@@ -1290,7 +1351,7 @@ function showYouDied() {
 }
 function updateDeathScreen(s, me, lp) {
   // let the explosion and "YOU DIED" play for a moment before the panel slides in
-  const show = me.dead && !lp.isKing && s.phase !== 'countdown' && !s.fin && performance.now() - deathAt > 1300;
+  const show = me.dead && !lp.isKing && s.phase !== 'countdown' && !s.fin && performance.now() - deathAt > 1000;
   $('#deathScreen').classList.toggle('hidden', !show);
   if (!show) return;
   const ktk = lobby.mode === 'ktk';
@@ -1300,7 +1361,7 @@ function updateDeathScreen(s, me, lp) {
   const nextCls = me.nc || me.c;
   if (s.cv) {
     $('#crowdT').textContent = Math.ceil(s.cv.t);
-    const html = curMap.pickups.map((sp, i) => `<button data-spot="${i}" class="${myVote === i ? 'on' : ''}">${esc(sp.name)}${s.cv.n[i] ? `<b>${s.cv.n[i]}</b>` : ''}</button>`).join('');
+    const html = curMap.voteSpots.map((sp, i) => `<button data-spot="${i}" class="${myVote === i ? 'on' : ''}">${esc(sp.name)}${s.cv.n[i] ? `<b>${s.cv.n[i]}</b>` : ''}</button>`).join('');
     if ($('#crowdSpots').dataset.html !== html) { $('#crowdSpots').innerHTML = html; $('#crowdSpots').dataset.html = html; }
   }
   $('#deathClasses').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.cls === nextCls));
@@ -1667,8 +1728,6 @@ function updateCamera(dt) {
   const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
   const target = new THREE.Vector3(g.position.x, g.position.y + 1.7, g.position.z).addScaledVector(right, 0.7);
   let dist = isTouch ? 6.4 : 5.2; // phones: pull back so your own character covers less of the small screen
-  const meNow = mySnapState();
-  if (meNow && meNow.dead) dist += Math.min(6, (performance.now() - deathAt) / 1000 * 5); // drift back to watch the blast
   const back = dir.clone().negate();
   raycaster.set(target, back);
   raycaster.far = dist;

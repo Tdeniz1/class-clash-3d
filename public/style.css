@@ -504,3 +504,7 @@ body.finale #touch, body.finale #tags .tag, body.finale #lockHint { display: non
   .res-left .mvp .st { font-size: 9.5px; }
   #againHint { margin: 0; }
 }
+
+/* death pacing: the panel fades in over a second, after a beat of watching the fight */
+.death { animation: fadeIn 1s ease-out both; }
+.you-died { font-size: clamp(40px, 9vw, 92px); animation-duration: 1.3s; }
