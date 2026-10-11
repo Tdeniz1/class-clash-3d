@@ -146,16 +146,22 @@
   <!-- RESULTS -->
   <section id="results" class="screen hidden">
     <div class="panel results-panel">
-      <div class="eyebrow">Match over</div>
-      <h2 id="winnerText" class="winner"></h2>
-      <div id="teamResult" class="team-result"></div>
-      <div id="mvpCards" class="mvp-cards"></div>
-      <table class="score-table">
-        <thead><tr><th>#</th><th>Player</th><th>Class</th><th>Points</th><th>KOs</th><th>Dmg</th></tr></thead>
-        <tbody id="resultsBody"></tbody>
-      </table>
-      <button id="againBtn" class="btn btn-primary">Play again</button>
-      <p id="againHint" class="muted small"></p>
+      <div class="res-left">
+        <div class="eyebrow">Match over</div>
+        <h2 id="winnerText" class="winner"></h2>
+        <div id="teamResult" class="team-result"></div>
+        <div id="mvpCards" class="mvp-cards"></div>
+        <button id="againBtn" class="btn btn-primary">Play again</button>
+        <p id="againHint" class="muted small"></p>
+      </div>
+      <div class="res-right">
+        <div class="res-table-wrap">
+          <table class="score-table">
+            <thead><tr><th>#</th><th>Player</th><th>Class</th><th>Points</th><th>KOs</th><th>Dmg</th></tr></thead>
+            <tbody id="resultsBody"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -174,6 +180,7 @@
     <ol id="scoreList" class="score-list"></ol>
     <ul id="feed" class="feed"></ul>
     <div id="centerMsg" class="center-msg"></div>
+    <div id="youDied" class="you-died hidden">YOU DIED</div>
     <div id="finaleBanner" class="finale-banner hidden"><div id="finaleTitle"></div><div id="finaleSub"></div></div>
     <div id="subMsg" class="sub-msg"></div>
     <div id="crosshair" class="crosshair"></div>
@@ -193,7 +200,7 @@
   <!-- DEATH SCREEN -->
   <div id="deathScreen" class="death hidden" role="dialog" aria-label="Knocked out">
     <div class="death-panel">
-      <div class="death-title">Knocked out</div>
+      <div class="death-title" id="deathTitle">You died</div>
       <div class="death-timer">Back in <b id="deathTime">8</b>s<span id="deathWhere"></span></div>
       <div class="eyebrow">Switch class for your next life</div>
       <div id="deathClasses" class="death-classes"></div>
@@ -217,7 +224,7 @@
     <div id="lookZone"></div>
     <div id="joyBase"><div id="joyKnob"></div></div>
     <button id="tAtk" class="tbtn tbtn-atk" aria-label="Attack">⚔</button>
-    <button id="tAbl" class="tbtn tbtn-abl" aria-label="Special ability">✦</button>
+    <button id="tAbl" class="tbtn tbtn-abl" aria-label="Special ability">✦<span id="tAblName" class="tbtn-name"></span></button>
     <button id="tJump" class="tbtn tbtn-jump" aria-label="Jump">⤒</button>
   </div>
 

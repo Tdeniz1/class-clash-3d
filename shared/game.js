@@ -167,7 +167,7 @@ export const KING_HOME = 31;
 // Bot limits: defenders stay in their own half; attackers stay out of the deepest 25% of it
 export const ATTACKER_LIMIT = 27;
 // Respawning: wait KTK_RESPAWN s (FRENZY_RESPAWN in the frenzy), come back at the 25% mark (halfway into your half)
-export const KTK_RESPAWN = 8;
+export const KTK_RESPAWN = 10;
 export const RESPAWN_LINE = 18;
 // Final frenzy: last FRENZY_TIME s — double damage, power-ups spawn FRENZY_PICKUP_RATE x faster, quick respawns
 export const FRENZY_TIME = 30;

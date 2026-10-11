@@ -457,3 +457,50 @@ body.touch.ktk .score-list li:nth-child(n+5) { display: none; }
 #finaleSub { margin-top: 10px; font-size: clamp(15px, 2.6vw, 24px); font-weight: 700; text-shadow: 0 2px 8px rgba(0,0,0,0.9); }
 @keyframes slam { from { transform: scale(2.4); opacity: 0; } }
 body.finale #touch, body.finale #tags .tag, body.finale #lockHint { display: none !important; }
+
+/* ---------- v7: death, bot labels, class info, results layout ---------- */
+.you-died { position: absolute; left: 0; right: 0; top: 30%; text-align: center; font-family: 'Cinzel', serif; font-weight: 900; font-size: clamp(48px, 12vw, 120px); color: #ff3b30; letter-spacing: 4px; text-shadow: 0 6px 0 #3a0000, 0 0 40px rgba(255,59,48,0.6); animation: died 1.5s ease-out both; z-index: 4; }
+@keyframes died { 0% { transform: scale(2.6); opacity: 0; } 15% { transform: scale(1); opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; transform: scale(0.96); } }
+#hud:has(.you-died:not(.hidden))::before { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(255,0,0,0) 40%, rgba(160,0,0,0.55)); animation: died 1.5s ease-out both; }
+.death { animation: fadeIn .35s ease-out both; }
+@keyframes fadeIn { from { opacity: 0; } }
+.tag .botlbl { font-size: 10px; font-weight: 500; color: #d8cdb8; margin-top: -1px; }
+.tag.far .botlbl { display: none; }
+.class-card .spec { font-size: 12px; color: #e0b3ff; font-weight: 700; }
+.draft-classes button, .death-classes button { gap: 1px; }
+.draft-classes button .cn, .death-classes button .cn { font-size: 13px; }
+.draft-classes button small, .death-classes button small { font-weight: 500; font-size: 10px; color: var(--sand-2); line-height: 1.2; text-align: center; }
+.tbtn-abl { display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; }
+.tbtn-name { font-size: 9px; font-weight: 700; margin-top: 3px; max-width: 64px; text-align: center; }
+
+.results-panel { width: 100%; max-width: 1040px; display: grid; grid-template-columns: minmax(280px, 380px) 1fr; gap: 18px; text-align: left; align-items: start; }
+.res-left { display: flex; flex-direction: column; gap: 12px; text-align: center; }
+.res-right { min-width: 0; }
+.res-table-wrap { max-height: min(72vh, 660px); overflow-y: auto; border-radius: 10px; border: 1px solid var(--line); }
+.res-table-wrap thead th { position: sticky; top: 0; background: #241a11; z-index: 1; }
+.team-result { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; font-family: 'Rubik', sans-serif; font-size: 16px; font-weight: 700; }
+.team-result .ts { font-size: 15px; padding: 6px 12px; white-space: nowrap; }
+.res-left .mvp-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.score-table td.is-bot { color: var(--muted); }
+.score-table td.is-bot small { font-size: 11px; }
+.score-table td.is-human { font-weight: 700; }
+@media (max-height: 520px), (max-width: 600px) {
+  .results-panel { grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 10px; padding: 10px; max-height: 100%; }
+  .res-left { gap: 6px; }
+  .winner { font-size: 20px; }
+  .team-result .ts { font-size: 12px; padding: 3px 8px; }
+  .res-left .mvp-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .res-table-wrap { max-height: calc(100dvh - 40px); }
+  .score-table { font-size: 12px; }
+  .score-table td { padding: 4px; }
+  .draft-classes button small, .death-classes button small { font-size: 8.5px; }
+  .draft-classes button .cn, .death-classes button .cn { font-size: 11px; }
+  .death-classes button { min-height: 0; }
+}
+@media (max-width: 600px) { .results-panel { grid-template-columns: 1fr; } }
+@media (max-height: 520px), (max-width: 600px) {
+  #results.screen { padding-right: max(56px, env(safe-area-inset-right)); }
+  .results-panel { overflow-y: auto; }
+  .res-left .mvp .st { font-size: 9.5px; }
+  #againHint { margin: 0; }
+}

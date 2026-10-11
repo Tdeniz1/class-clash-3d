@@ -129,6 +129,7 @@ function buildArena(map) {
       arenaGroup.add(m); obstacles.push(m); // camera must not end up inside the stands
     }
   }
+  buildCrowd(map, hx, hz);
   const archMat = lam(0x7a5530);
   const nArch = Math.floor(hx / 3.4) + 2;
   for (let i = -nArch; i <= nArch; i++) {
@@ -211,6 +212,46 @@ function buildFieldMarkings(map) {
   }
 }
 
+// ---------- crowd: instanced fans on every tier, bouncing harder after knockouts ----------
+let crowd = null, crowdExcite = 0, crowdFrame = 0;
+const SHIRTS = [0xb5302a, 0xe3a857, 0x3a86ff, 0x2ecc71, 0xf4f1e8, 0x7b4bc4, 0xff8fab, 0x2b2016];
+const SKINS = [0xf1c27d, 0xe0ac69, 0xc68642, 0x8d5524, 0xffdbac];
+function buildCrowd(map, hx, hz) {
+  const spots = [];
+  for (let t = 0; t < 3; t++) {
+    const off = 3 + t * 3.2, h = 3 + t * 2.6, L = hx + off, W = hz + off;
+    for (let x = -L + 0.8; x <= L - 0.8; x += 1.1) for (const sz of [-1, 1]) if (Math.random() < 0.82) spots.push([x + (Math.random() - 0.5) * 0.3, h, sz * W + (Math.random() - 0.5) * 0.8]);
+    for (let z = -W + 1.8; z <= W - 1.8; z += 1.1) for (const sx of [-1, 1]) if (Math.random() < 0.82) spots.push([sx * L + (Math.random() - 0.5) * 0.8, h, z]);
+  }
+  const n = spots.length;
+  const body = new THREE.InstancedMesh(new THREE.BoxGeometry(0.55, 0.75, 0.4), new THREE.MeshLambertMaterial(), n);
+  const head = new THREE.InstancedMesh(new THREE.BoxGeometry(0.34, 0.34, 0.34), new THREE.MeshLambertMaterial(), n);
+  const col = new THREE.Color();
+  const fans = spots.map(([x, y, z], i) => {
+    // Kill the King: each team's fans sit behind their own half
+    let shirt = SHIRTS[(Math.random() * SHIRTS.length) | 0];
+    if (map.key === 'field' && Math.random() < 0.7) shirt = x < 0 ? G.TEAM_COLORS.red : G.TEAM_COLORS.blue;
+    body.setColorAt(i, col.setHex(shirt));
+    head.setColorAt(i, col.setHex(SKINS[(Math.random() * SKINS.length) | 0]));
+    return { x, y, z, phase: Math.random() * 6.28, speed: 5 + Math.random() * 5, hype: 0.4 + Math.random() };
+  });
+  arenaGroup.add(body, head);
+  crowd = { body, head, fans, dummy: new THREE.Object3D() };
+  animateCrowd(performance.now(), 0, true);
+}
+function animateCrowd(now, dt, force) {
+  if (!crowd) return;
+  crowdExcite = Math.max(0, crowdExcite - dt * 0.35);
+  if (!force && isTouch && (crowdFrame++ & 1)) return; // phones: update every other frame
+  const amp = 0.05 + (lastSnap && lastSnap.fz ? 0.22 : 0) + crowdExcite * 0.32, t = now / 1000, d = crowd.dummy;
+  crowd.fans.forEach((f, i) => {
+    const jump = Math.max(0, Math.sin(t * f.speed + f.phase)) * amp * f.hype;
+    d.position.set(f.x, f.y + 0.38 + jump, f.z); d.updateMatrix(); crowd.body.setMatrixAt(i, d.matrix);
+    d.position.y += 0.56; d.updateMatrix(); crowd.head.setMatrixAt(i, d.matrix);
+  });
+  crowd.body.instanceMatrix.needsUpdate = true; crowd.head.instanceMatrix.needsUpdate = true;
+}
+
 // ---------- zone ----------
 function groundRing(cx, cz, rIn, rOut, color, opacity) {
   const geo = new THREE.RingGeometry(rIn, rOut, 56, 4);
@@ -256,7 +297,7 @@ function setMap(key) {
   const m = G.MAPS[key] || G.MAPS.arena;
   if (m === curMap && arenaGroup.children.length) return;
   curMap = m;
-  arenaGroup.clear(); obstacles.length = 0;
+  arenaGroup.clear(); obstacles.length = 0; crowd = null;
   buildArena(m);
   zoneGroup.clear(); zoneFill = zoneEdge = zoneBeam = null; zoneShownIdx = -1;
   setNextZone(null);
@@ -450,7 +491,7 @@ function ensureChar(id, snapCls) {
   if (!ch) {
     const tag = document.createElement('div');
     tag.className = 'tag';
-    tag.innerHTML = '<div><span class="n"></span><span class="icons"></span></div><div class="bar"><i></i></div>';
+    tag.innerHTML = '<div><span class="n"></span><span class="icons"></span></div><div class="botlbl">(bot)</div><div class="bar"><i></i></div>';
     $('#tags').appendChild(tag);
     ch = { buf: [], tag, flashT: 0, atkT: 0, walk: 0, lastPos: null, state: null };
     chars.set(id, ch);
@@ -458,6 +499,7 @@ function ensureChar(id, snapCls) {
   ch.key = key; ch.model = model;
   const n = ch.tag.querySelector('.n');
   n.textContent = lp ? lp.name : '?';
+  ch.tag.querySelector('.botlbl').style.display = lp && lp.isBot && !lp.isKing ? '' : 'none';
   n.style.color = hex(rc);
   return ch;
 }
@@ -516,6 +558,44 @@ function burstFx(x, y, z, color, n = 10, speed = 6) {
     effects.push({ m, t: 0, dur: 0.9, update(k, dt) { v.y -= 18 * dt; m.position.addScaledVector(v, dt); m.rotation.x += dt * 8; mat.opacity = 1 - k; } });
   }
 }
+// Death explosion: flash, fireball, shockwave, flying debris in the fighter's color, smoke
+const boomLight = new THREE.PointLight(0xffa040, 0, 18);
+scene.add(boomLight);
+let boomLightT = 0;
+function explodeFx(x, y, z, color, big = false) {
+  const cy = y + 1;
+  boomLight.position.set(x, cy + 1, z); boomLight.intensity = big ? 9 : 6; boomLightT = 0.35;
+  sphereFx(x, cy, z, big ? 4 : 3, 0xfff1a8);
+  for (const [c, r, d] of [[0xff8c1a, 2.6, 0.55], [0xff4d00, 2.0, 0.7], [0xffd23f, 1.4, 0.45]]) {
+    const m = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.9, depthWrite: false }));
+    m.position.set(x + (Math.random() - 0.5), cy + Math.random() * 0.6, z + (Math.random() - 0.5)); scene.add(m);
+    effects.push({ m, t: 0, dur: d, update(k) { m.scale.setScalar(0.3 + k * r * (big ? 1.4 : 1)); m.material.opacity = 0.9 * (1 - k); } });
+  }
+  ringFx(x, y, z, big ? 9 : 6, 0xffb347, 0.6);
+  // debris chunks that bounce on the ground
+  const geo = new THREE.BoxGeometry(0.28, 0.28, 0.28);
+  for (let i = 0; i < (big ? 26 : 18); i++) {
+    const mat = new THREE.MeshLambertMaterial({ color: i % 3 ? color : 0x2a2018, transparent: true });
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, cy, z);
+    const v = new THREE.Vector3((Math.random() - 0.5) * 14, 4 + Math.random() * 9, (Math.random() - 0.5) * 14);
+    scene.add(m);
+    effects.push({ m, t: 0, dur: 1.6, update(k, dt) {
+      v.y -= 22 * dt; m.position.addScaledVector(v, dt);
+      const floor = gh(m.position.x, m.position.z) + 0.14;
+      if (m.position.y < floor) { m.position.y = floor; v.y *= -0.35; v.x *= 0.7; v.z *= 0.7; }
+      m.rotation.x += dt * 9; m.rotation.y += dt * 7; mat.opacity = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
+    } });
+  }
+  // smoke puffs drifting up
+  for (let i = 0; i < 6; i++) {
+    const m = new THREE.Mesh(new THREE.IcosahedronGeometry(0.6, 0), new THREE.MeshLambertMaterial({ color: 0x5a5048, transparent: true, opacity: 0.6, depthWrite: false }));
+    m.position.set(x + (Math.random() - 0.5) * 1.5, cy, z + (Math.random() - 0.5) * 1.5); scene.add(m);
+    const rise = 1.5 + Math.random() * 1.5;
+    effects.push({ m, t: 0, dur: 1.8, update(k, dt) { m.position.y += rise * dt; m.scale.setScalar(1 + k * 2.2); m.material.opacity = 0.6 * (1 - k); } });
+  }
+}
+
 function sphereFx(x, y, z, r, color) {
   const m = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7, depthWrite: false }));
   m.position.set(x, y, z); scene.add(m);
@@ -568,6 +648,7 @@ const sfx = {
   ko: () => { tone(520, 0.12, 'square', 0.06); setTimeout(() => tone(780, 0.2, 'square', 0.06), 90); },
   ability: () => tone(300, 0.25, 'triangle', 0.08, 400),
   boom: () => tone(80, 0.3, 'sawtooth', 0.09, -40),
+  explode: () => { tone(120, 0.5, 'sawtooth', 0.12, -90); tone(60, 0.7, 'square', 0.08, -30); setTimeout(() => tone(40, 0.5, 'sawtooth', 0.06, -10), 120); },
   tick: () => tone(660, 0.08, 'sine', 0.08),
   go: () => tone(990, 0.3, 'sine', 0.09),
   power: () => { tone(520, 0.1, 'triangle', 0.08); setTimeout(() => tone(880, 0.18, 'triangle', 0.08), 80); },
@@ -643,13 +724,15 @@ socket.on('connect', () => {
 
 // ---------- UI: lobby ----------
 const classGrid = $('#classGrid');
+const reach = c => (c.attack.type === 'melee' ? 'Melee' : 'Ranged');
 for (const id of G.CLASS_ORDER) {
   const c = G.CLASSES[id];
   const b = document.createElement('button');
   b.className = 'class-card'; b.dataset.cls = id;
   b.innerHTML = `<div class="swatch" style="background:${hex(c.color)}"></div>
     <h3>${c.name}</h3><div class="role">${c.role}</div>
-    <div class="stats">${c.hp} HP · speed ${c.speed}</div>
+    <div class="stats">${c.hp} HP · ${c.attack.dmg} dmg · ${reach(c)}</div>
+    <div class="spec">✦ ${c.ability.name}</div>
     <p><b>Attack:</b> ${c.atkText}</p><p><b>Special:</b> ${c.ablText}</p><p><b>Passive:</b> ${c.passiveText}</p>
     <div class="pickers"></div>`;
   b.onclick = () => socket.emit('setClass', id);
@@ -748,11 +831,11 @@ function renderResults() {
   else if (R.mode === 'teams') $('#winnerText').textContent = G.TEAM_NAMES[R.winner] + ' team wins!';
   else $('#winnerText').textContent = nameOf(R.winner) + ' wins!';
   $('#teamResult').innerHTML = R.mode === 'ktk'
-    ? `<span class="ts red">Red King ${R.kingHp.red} HP</span> <span class="ts blue">Blue King ${R.kingHp.blue} HP</span>`
+    ? `<span class="ts red">👑 Red ${R.kingHp.red} HP</span><span class="ts blue">👑 Blue ${R.kingHp.blue} HP</span>`
     : R.mode === 'teams'
     ? R.teams.map(t => `<span class="ts ${t}">${R.teamScore[t]}</span>`).join(' <span class="ts-sep">vs</span> ') : '';
   $('#resultsBody').innerHTML = R.players.map((p, i) => `<tr class="${p.id === myId ? 'me' : ''}">
-    <td>${i + 1}</td><td>${esc(p.name)}${R.mode !== 'ffa' ? ` <span class="badge ${p.team}">${G.TEAM_NAMES[p.team]}</span>` : ''}</td>
+    <td>${i + 1}</td><td class="${p.isBot ? 'is-bot' : 'is-human'}">${esc(p.name)}${p.isBot ? ' <small>(bot)</small>' : ''}${R.mode !== 'ffa' ? ` <span class="badge ${p.team}">${G.TEAM_NAMES[p.team]}</span>` : ''}</td>
     <td>${G.CLASSES[p.cls].name}</td><td>${p.score}</td><td>${p.kos}</td><td>${p.dmg || 0}</td></tr>`).join('');
   $('#mvpCards').innerHTML = (R.awards || []).map(a => `<div class="mvp ${a.id === myId ? 'me' : ''}">
     <div class="ic">${a.icon}</div><div class="tt">${a.title}</div>
@@ -831,7 +914,12 @@ const myDraft = () => { const me = lobbyPlayer(myId); return lobby && lobby.draf
 
 for (const id of G.CLASS_ORDER) {
   const c = G.CLASSES[id];
-  const mk = () => { const b = document.createElement('button'); b.dataset.cls = id; b.innerHTML = `<i style="background:${hex(c.color)}"></i>${c.name}`; return b; };
+  const mk = () => {
+    const b = document.createElement('button'); b.dataset.cls = id;
+    b.innerHTML = `<i style="background:${hex(c.color)}"></i><span class="cn">${c.name}</span><small>${c.hp} HP · ${c.attack.dmg} dmg</small><small>${reach(c)} · ✦ ${c.ability.name}</small>`;
+    b.title = `${c.name}: ${c.atkText}. Special: ${c.ablText}. Passive: ${c.passiveText}`;
+    return b;
+  };
   $('#draftClasses').appendChild(mk());
   $('#deathClasses').appendChild(mk());
 }
@@ -1097,11 +1185,15 @@ function handleEvent(e) {
     case 'ko': {
       const lp = lobbyPlayer(e.id);
       const c = lp ? G.CLASSES[lp.cls].color : 0xffffff;
-      burstFx(e.x, e.y, e.z, c, 14, 7);
+      explodeFx(e.x, e.y, e.z, c, e.id === myId || e.king);
+      if (pred && Math.hypot(pred.x - e.x, pred.z - e.z) < 14) shakeT = Math.max(shakeT, e.id === myId ? 0.6 : 0.3);
+      crowdExcite = Math.min(2, crowdExcite + (e.king ? 2 : 0.6));
+      if (e.id === myId) { deathAt = performance.now(); showYouDied(); }
       feed(e.by ? `${nameTag(e.by)} ⚔ ${nameTag(e.id)}` : e.cause === 'meteor' ? `☄ ${nameTag(e.id)} got hit by a meteor` : `${nameTag(e.id)} was knocked out`);
       if (e.by === myId) { sfx.ko(); flashCenter('+3 KO', 700); }
       if (e.king && lp) flashCenter(`${G.TEAM_NAMES[lp.team]} King has fallen!`, 2500);
-      if (e.id === myId) { sfx.hurt(); if (document.pointerLockElement) document.exitPointerLock(); }
+      if (e.id === myId || (pred && Math.hypot(pred.x - e.x, pred.z - e.z) < 18)) sfx.explode();
+      if (e.id === myId && document.pointerLockElement) document.exitPointerLock();
       break;
     }
     case 'atk':
@@ -1152,6 +1244,7 @@ function handleEvent(e) {
       $('#finaleBanner').classList.remove('hidden');
       $('#hud').classList.add('finale');
       document.body.classList.add('finale');
+      crowdExcite = 2;
       finaleOrbit = Math.atan2(camera.position.x, camera.position.z);
       if (document.pointerLockElement) document.exitPointerLock();
       sfx.ko(); setTimeout(() => sfx.zone(), 350); setTimeout(() => tone(1046, 0.6, 'triangle', 0.09), 700);
@@ -1159,6 +1252,7 @@ function handleEvent(e) {
     }
     case 'frenzy':
       flashCenter('FINAL FRENZY!', 2200);
+      crowdExcite = Math.min(2, crowdExcite + 1);
       feed('🔥 Last 30 s: double damage, fast power-ups, 3 s respawns');
       sfx.boom();
       break;
@@ -1187,13 +1281,21 @@ function handleEvent(e) {
 }
 
 // ---------- death screen: countdown, class swap, team stats ----------
-let deathStatsAt = 0;
+let deathStatsAt = 0, deathAt = 0;
+function showYouDied() {
+  const el = $('#youDied');
+  el.classList.remove('hidden'); el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
+  clearTimeout(showYouDied.t);
+  showYouDied.t = setTimeout(() => el.classList.add('hidden'), 1500);
+}
 function updateDeathScreen(s, me, lp) {
-  const show = me.dead && !lp.isKing && s.phase !== 'countdown' && !s.fin;
+  // let the explosion and "YOU DIED" play for a moment before the panel slides in
+  const show = me.dead && !lp.isKing && s.phase !== 'countdown' && !s.fin && performance.now() - deathAt > 1300;
   $('#deathScreen').classList.toggle('hidden', !show);
   if (!show) return;
   const ktk = lobby.mode === 'ktk';
   $('#deathTime').textContent = Math.max(0, Math.ceil(me.rt));
+  $('#deathTitle').textContent = 'You died';
   $('#deathWhere').textContent = ktk ? ' · at your 25% line' : '';
   const nextCls = me.nc || me.c;
   if (s.cv) {
@@ -1515,6 +1617,8 @@ function frame() {
 
   for (const [, m] of projMeshes) m.position.lerp(m.userData.target, Math.min(1, dt * 20));
   animateWorldObjs(now, dt);
+  if (boomLightT > 0) { boomLightT = Math.max(0, boomLightT - realDt); boomLight.intensity = boomLightT / 0.35 * 7; }
+  animateCrowd(now, realDt);
   updateEffects(dt);
   if (zoneBeam && lastSnap) {
     const z = lastSnap.zone;
@@ -1563,6 +1667,8 @@ function updateCamera(dt) {
   const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
   const target = new THREE.Vector3(g.position.x, g.position.y + 1.7, g.position.z).addScaledVector(right, 0.7);
   let dist = isTouch ? 6.4 : 5.2; // phones: pull back so your own character covers less of the small screen
+  const meNow = mySnapState();
+  if (meNow && meNow.dead) dist += Math.min(6, (performance.now() - deathAt) / 1000 * 5); // drift back to watch the blast
   const back = dir.clone().negate();
   raycaster.set(target, back);
   raycaster.far = dist;
@@ -1641,6 +1747,7 @@ function updateHud(now) {
   $('#meName').textContent = lp.name;
   $('#meClass').textContent = c.name;
   $('#ablName').textContent = c.ability.name;
+  $('#tAblName').textContent = c.ability.name;
   $('#meScore').textContent = me.sc;
   $('#hpFill').style.width = (me.hp / me.mhp * 100) + '%';
   $('#hpFill').style.background = me.hp / me.mhp < 0.3 ? 'linear-gradient(90deg,#e63946,#ff6b5b)' : '';
