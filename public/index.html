@@ -142,7 +142,7 @@
           <div id="draftClasses" class="draft-classes" role="group" aria-label="Class for the selected spot"></div>
         </div>
       </div>
-      <p class="muted small draft-note"><b>You're the captain:</b> during the fight, order your bots with Z ⚔ Attack · X 🛡 Defend · C 🚩 Follow me · V 🎯 Focus · B ↺ Formation (📣 on phones). Bots stay in their zone: defenders stay in your half, attackers stay forward. You can go anywhere. Kill their King (300 HP) to win, and protect yours. Kings can't fall until the Final Frenzy (last 30 s), and a tie goes to Overtime. Unpicked spots get picked for you.</p>
+      <p class="muted small draft-note"><b>You're the captain:</b> during the fight, order your bots with Z ⚔ Attack · X 🛡 Defend · C 🚩 Follow me · V 🎯 Focus · B ↺ Formation (📣 on phones). Bots stay in their zone: defenders stay in your half, attackers stay forward. You can go anywhere. Kill their King (400 HP) to win, and protect yours. A tie at the buzzer goes to Overtime. Unpicked spots get picked for you.</p>
     </div>
   </section>
 
@@ -176,9 +176,9 @@
     </div>
     <div id="teamScores" class="team-scores hidden"></div>
     <div id="kingBars" class="king-bars hidden">
-      <div class="kb red"><span><i id="kpRed" class="kg-shield hidden" title="Protected until the Final Frenzy">🔒</i><i id="kgRed" class="kg-shield hidden" title="Guarded: takes 30% damage">🛡</i>Red King</span><div class="kbar"><i id="kbRed"></i></div><b id="kbRedHp"></b></div>
+      <div class="kb red"><span><i id="kgRed" class="kg-shield hidden" title="Guarded: takes 30% damage">🛡</i>Red King</span><div class="kbar"><i id="kbRed"></i></div><b id="kbRedHp"></b></div>
       <div id="frenzyTag" class="frenzy-tag hidden">🔥 2× DAMAGE</div>
-      <div class="kb blue"><span><i id="kpBlue" class="kg-shield hidden" title="Protected until the Final Frenzy">🔒</i><i id="kgBlue" class="kg-shield hidden" title="Guarded: takes 30% damage">🛡</i>Blue King</span><div class="kbar"><i id="kbBlue"></i></div><b id="kbBlueHp"></b></div>
+      <div class="kb blue"><span><i id="kgBlue" class="kg-shield hidden" title="Guarded: takes 30% damage">🛡</i>Blue King</span><div class="kbar"><i id="kbBlue"></i></div><b id="kbBlueHp"></b></div>
     </div>
     <ol id="scoreList" class="score-list"></ol>
     <ul id="feed" class="feed"></ul>
@@ -256,6 +256,7 @@
   <button id="fsBtn" class="gear fs-btn hidden" aria-label="Full screen">⛶</button>
   <div id="settings" class="settings hidden" role="dialog" aria-label="Settings">
     <label>Look sensitivity <input id="sensInput" type="range" min="0.3" max="2.5" step="0.1" value="1"></label>
+    <label class="check"><input id="musicInput" type="checkbox"> Background music</label>
     <label class="check"><input id="muteInput" type="checkbox"> Mute sounds</label>
     <button id="leaveBtn" class="btn btn-small">Leave room</button>
     <button id="closeSettings" class="btn btn-small">Close</button>

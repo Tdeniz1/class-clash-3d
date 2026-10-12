@@ -349,8 +349,6 @@ function damage(room, src, e, amt, kbx = 0, kbz = 0) {
   if (room.overtime) amt *= G.OVERTIME.DMG;
   amt = Math.max(1, Math.round(amt));
   e.hp -= amt;
-  // Kings can't fall before the Final Frenzy (or overtime)
-  if (e.isKing && room.mode === 'ktk' && !room.frenzy && !room.overtime) e.hp = Math.max(e.hp, Math.ceil(e.maxHp * G.KING_FLOOR));
   e.lastHurt = room.time;
   const res = e.cls === 'tank' ? 0.7 : 1;
   e.kx += kbx * res; e.kz += kbz * res;
@@ -1149,7 +1147,7 @@ function checkEnd(room) {
   }
 }
 
-// Overtime: health halved, damage and speed doubled, Kings lose their protection
+// Overtime: health halved, damage and speed doubled
 function startOvertime(room, seconds) {
   room.phase = 'sudden'; room.overtime = true; room.frenzy = false; room.timer = seconds;
   for (const p of room.players.values()) {
@@ -1199,7 +1197,7 @@ function sendSnapshot(room) {
       snap.ord[t] = o && o.until > room.time ? { c: o.cmd, by: o.by, t: r2(o.until - room.time), tg: o.targetId } : null;
     }
     snap.kg = {};
-    for (const t of ['red', 'blue']) { const k = kingOf(room, t); if (k) snap.kg[t] = { id: k.id, hp: Math.ceil(Math.max(0, k.hp)), mhp: k.maxHp, gd: !k.dead && kingGuarded(room, k), pf: !room.frenzy && !room.overtime && k.hp <= Math.ceil(k.maxHp * G.KING_FLOOR) }; }
+    for (const t of ['red', 'blue']) { const k = kingOf(room, t); if (k) snap.kg[t] = { id: k.id, hp: Math.ceil(Math.max(0, k.hp)), mhp: k.maxHp, gd: !k.dead && kingGuarded(room, k) }; }
   }
   for (const p of room.players.values()) {
     if (!p.inMatch) continue;

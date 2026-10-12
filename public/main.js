@@ -704,7 +704,7 @@ function tone(freq, dur = 0.1, type = 'square', vol = 0.06, slide = 0) {
   } catch {}
 }
 // noise buffer for impacts, whooshes, explosions and the crowd
-let noiseBuf = null, crowdAudio = null;
+let noiseBuf = null;
 function ac() { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); return actx; }
 function noise() {
   if (noiseBuf) return noiseBuf;
@@ -726,90 +726,58 @@ function noiseBurst({ dur = 0.15, freq = 800, q = 1, vol = 0.2, type = 'bandpass
     src.start(t, Math.random()); src.stop(t + dur + 0.05);
   } catch {}
 }
-// ---------- crowd audio: a low murmur bed + synthesized voices for cheers (no hiss) ----------
-let brownBuf = null, lastCheer = 0;
-// brown noise = low, rumbly noise (energy falls off with pitch, unlike white-noise hiss)
-function brownNoise(c) {
-  if (brownBuf && brownBuf.sampleRate === c.sampleRate) return brownBuf;
-  const len = c.sampleRate * 3, b = c.createBuffer(1, len, c.sampleRate), d = b.getChannelData(0);
-  let last = 0;
-  for (let i = 0; i < len; i++) { last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02; d[i] = last * 3.5; }
-  brownBuf = b;
-  return b;
+// ---------- background music: a soft procedural chord loop (Music switch in settings) ----------
+// Am – F – C – G at 100 bpm: warm detuned pad, round bass, quiet plucked arpeggio, light reverb.
+const MUSIC = { BAR: 2.4, PROG: [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]], ARP: [0, 1, 2, 1, 2, 1, 0, 1] };
+let music = null, musicOn = store.get('cc_music', true);
+const hz = n => 440 * Math.pow(2, (n - 69) / 12);
+function makeReverb(c) {
+  const conv = c.createConvolver(), len = Math.floor(c.sampleRate * 2.2), ir = c.createBuffer(2, len, c.sampleRate);
+  for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3); }
+  conv.buffer = ir;
+  return conv;
 }
-// The murmur: lowpassed brown noise that slowly "breathes"
-function makeCrowdBed(c, out) {
-  const src = c.createBufferSource(); src.buffer = brownNoise(c); src.loop = true;
-  const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 380; lp.Q.value = 0.4;
-  const breathe = c.createGain(); breathe.gain.value = 0.85;
-  const lfo = c.createOscillator(), depth = c.createGain(); lfo.frequency.value = 0.21; depth.gain.value = 0.15;
-  lfo.connect(depth).connect(breathe.gain);
-  const g = c.createGain(); g.gain.value = 0;
-  src.connect(lp).connect(breathe).connect(g).connect(out);
-  src.start(0, Math.random() * 2); lfo.start();
-  return { g, lp };
+function musicChain(c, dest) {
+  const out = c.createGain(), lp = c.createBiquadFilter(), dry = c.createGain(), wet = c.createGain(), rev = makeReverb(c);
+  lp.type = 'lowpass'; lp.frequency.value = 2800;
+  dry.gain.value = 0.75; wet.gain.value = 0.3;
+  lp.connect(dry).connect(out); lp.connect(rev).connect(wet).connect(out); out.connect(dest);
+  return { out, lp };
 }
-// A cheer: a chorus of voices shaped into an "aaah / yeah" vowel by formant filters
-function makeCheer(c, out, { voices = 10, dur = 1.6, vol = 0.05, t0 = c.currentTime, vowel = 'ah' } = {}) {
-  const F = vowel === 'oh' ? [[500, 6, 1], [850, 7, 0.6], [2400, 8, 0.15]] : [[750, 5, 1], [1150, 6, 0.7], [2500, 8, 0.18]];
-  const mix = c.createGain(), master = c.createGain();
-  master.gain.value = vol;
-  for (const [f, q, gain] of F) {
-    const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = q;
-    const g = c.createGain(); g.gain.value = gain * 3;
-    mix.connect(bp).connect(g).connect(master);
-  }
-  master.connect(out);
-  for (let i = 0; i < voices; i++) {
-    const o = c.createOscillator(); o.type = 'sawtooth';
-    const base = 140 + Math.random() * 260, s0 = t0 + Math.random() * 0.25, a = 0.12 + Math.random() * 0.3, end = s0 + dur * (0.75 + Math.random() * 0.4);
-    // cheer contour: rise into the shout, then fall away
-    o.frequency.setValueAtTime(base * 0.9, s0);
-    o.frequency.linearRampToValueAtTime(base * 1.15, s0 + a);
-    o.frequency.linearRampToValueAtTime(base * 1.02, s0 + (end - s0) * 0.6);
-    o.frequency.linearRampToValueAtTime(base * 0.82, end);
-    const vib = c.createOscillator(), vd = c.createGain(); vib.frequency.value = 4.5 + Math.random() * 2.5; vd.gain.value = base * 0.025;
-    vib.connect(vd).connect(o.frequency);
-    const g = c.createGain(); g.gain.setValueAtTime(0.0001, s0);
-    g.gain.exponentialRampToValueAtTime(1, s0 + a);
-    g.gain.setValueAtTime(1, s0 + (end - s0) * 0.55);
-    g.gain.exponentialRampToValueAtTime(0.0001, end);
-    let node = o.connect(g);
-    if (c.createStereoPanner) { const pan = c.createStereoPanner(); pan.pan.value = Math.random() * 1.6 - 0.8; node = node.connect(pan); }
-    node.connect(mix);
-    o.start(s0); vib.start(s0); o.stop(end + 0.05); vib.stop(end + 0.05);
-  }
-  // body: a soft low roar under the voices
-  const n = c.createBufferSource(); n.buffer = brownNoise(c); n.loop = true;
-  const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
-  const ng = c.createGain(); ng.gain.setValueAtTime(0.0001, t0); ng.gain.exponentialRampToValueAtTime(vol * 1.6, t0 + 0.3); ng.gain.exponentialRampToValueAtTime(0.0001, t0 + dur * 1.1);
-  n.connect(lp).connect(ng).connect(out); n.start(t0, Math.random()); n.stop(t0 + dur * 1.15);
+function note(c, dest, type, f, t, dur, vol, attack, detune = 0) {
+  const o = c.createOscillator(), g = c.createGain();
+  o.type = type; o.frequency.value = f; o.detune.value = detune;
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + attack); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(dest); o.start(t); o.stop(t + dur + 0.05);
 }
-const CHEERS = { small: { voices: 6, dur: 1.2, vol: 0.035 }, medium: { voices: 11, dur: 1.8, vol: 0.05 }, big: { voices: 18, dur: 3.2, vol: 0.07 } };
-function cheer(size = 'small', vowel = 'ah') {
-  if (muted || !actx) return;
-  const now = performance.now();
-  if (size === 'small' && now - lastCheer < 500) return; // don't stack a dozen little cheers
-  lastCheer = now;
-  try { makeCheer(actx, actx.destination, { ...CHEERS[size], vowel }); } catch {}
+function musicBar(c, dest, t, i) {
+  const { BAR, PROG, ARP } = MUSIC, chord = PROG[i % PROG.length];
+  for (const n of chord) for (const dt of [-5, 5]) note(c, dest, 'triangle', hz(n), t, BAR * 1.05, 0.05, 0.7, dt); // pad
+  note(c, dest, 'sine', hz(chord[0] - 12), t, BAR * 0.9, 0.11, 0.03);                                          // bass
+  if (i % 8 >= 2) ARP.forEach((k, j) => note(c, dest, 'triangle', hz(chord[k] + 12), t + j * BAR / 8, 0.42, 0.075, 0.006)); // pluck
 }
-function ensureCrowdAudio() {
-  if (crowdAudio) return;
-  try { crowdAudio = makeCrowdBed(ac(), ac().destination); } catch {}
+function startMusic() {
+  if (music || !actx) return;
+  try {
+    const chain = musicChain(actx, actx.destination);
+    chain.out.gain.value = 0;
+    music = { ...chain, next: actx.currentTime + 0.2, bar: 0 };
+    music.timer = setInterval(() => {
+      while (music.next < actx.currentTime + 1.2) { musicBar(actx, music.lp, music.next, music.bar++); music.next += MUSIC.BAR; }
+    }, 250);
+  } catch {}
 }
-function updateCrowdAudio() {
-  if (!crowdAudio || !actx) return;
-  const playing = inMatchNow(), fz = lastSnap && (lastSnap.fz || lastSnap.ot) ? 1 : 0, t = actx.currentTime;
-  const vol = muted ? 0 : playing ? 0.06 + crowdExcite * 0.035 + fz * 0.03 : 0.02;
-  crowdAudio.g.gain.setTargetAtTime(vol, t, 0.4);
-  crowdAudio.lp.frequency.setTargetAtTime(360 + crowdExcite * 220 + fz * 120, t, 0.4); // excitement opens it up a little
+function updateMusic() {
+  if (!music || !actx) return;
+  const want = musicOn && !muted ? 1.4 : 0;
+  music.out.gain.setTargetAtTime(want, actx.currentTime, 0.5);
+  music.lp.frequency.setTargetAtTime(lastSnap && (lastSnap.fz || lastSnap.ot) && inMatchNow() ? 4200 : 2800, actx.currentTime, 1); // brighter in the frenzy
 }
-// Preview hook for testing: render the murmur and a big cheer offline
-window.__crowdPreview = async (seconds = 5) => {
-  const c = new OfflineAudioContext(2, 44100 * seconds, 44100);
-  const bed = makeCrowdBed(c, c.destination); bed.g.gain.value = 0.08;
-  makeCheer(c, c.destination, { ...CHEERS.medium, t0: 0.6 });
-  makeCheer(c, c.destination, { ...CHEERS.big, t0: 2.2 });
+// Preview hook for testing: render a few bars offline
+window.__musicPreview = async (seconds = 20) => {
+  const c = new OfflineAudioContext(2, 44100 * seconds, 44100), chain = musicChain(c, c.destination);
+  chain.out.gain.value = 1.4;
+  for (let i = 0, t = 0.1; t < seconds; i++, t += MUSIC.BAR) musicBar(c, chain.lp, t, i);
   return c.startRendering();
 };
 
@@ -817,7 +785,6 @@ const sfx = {
   hit: () => { noiseBurst({ dur: 0.12, freq: 1100, q: 0.9, vol: 0.28 }); tone(160, 0.09, 'triangle', 0.07, -70); },
   hurt: () => { noiseBurst({ dur: 0.2, freq: 380, q: 0.7, vol: 0.32 }); tone(95, 0.18, 'sawtooth', 0.06, -40); },
   swing: () => noiseBurst({ dur: 0.16, freq: 2400, q: 1.8, vol: 0.07, sweep: -1700, attack: 0.03 }),
-  roar: () => cheer('small'),
   alarm: () => { tone(880, 0.12, 'square', 0.06); setTimeout(() => tone(660, 0.16, 'square', 0.06), 140); },
   ko: () => { tone(520, 0.12, 'square', 0.06); setTimeout(() => tone(780, 0.2, 'square', 0.06), 90); },
   ability: () => tone(300, 0.25, 'triangle', 0.08, 400),
@@ -882,7 +849,7 @@ function doJoin() {
 $('#joinBtn').onclick = doJoin;
 codeInput.addEventListener('keydown', e => { if (e.key === 'Enter') doJoin(); });
 nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') (codeInput.value.trim().length === 4 ? doJoin() : $('#createBtn').click()); });
-function unlockAudio() { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); ensureCrowdAudio(); } catch {} }
+function unlockAudio() { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); startMusic(); } catch {} }
 
 // auto-rejoin after a refresh, and after a dropped connection
 socket.on('connect', () => {
@@ -959,7 +926,7 @@ function renderLobby() {
   const ktk = L.mode === 'ktk';
   $('#hostTools').classList.toggle('hidden', !host || ktk);
   $('#modeInfo').classList.toggle('hidden', !ktk);
-  $('#modeInfo').innerHTML = ktk ? '<b>Kill the King</b> — 8v8 on a long field. Bots fill every empty spot. Right before the fight you get 10 seconds to pick your line-up, your spot, and a class for every bot. Kill their King (300 HP) to win.' : '';
+  $('#modeInfo').innerHTML = ktk ? '<b>Kill the King</b> — 8v8 on a long field. Bots fill every empty spot. Right before the fight you get 10 seconds to pick your line-up, your spot, and a class for every bot. Kill their King (400 HP) to win.' : '';
   $('#addBotBtn').disabled = L.players.length >= G.MAX_PLAYERS;
   $('#fillBotsBtn').disabled = L.players.length >= G.MAX_PLAYERS;
   $('#teamPick').classList.toggle('hidden', !isTeamMode());
@@ -1119,7 +1086,7 @@ function renderDraft() {
     return `<button class="slot ${sl.humanId === myId ? 'mine' : ''} ${h ? 'human' : ''} ${i === selSlot ? 'sel' : ''}" data-idx="${i}">
       <span class="s-cls" style="color:${hex(G.CLASSES[sl.cls].color === 0x2b2d42 ? 0x9a9cc0 : G.CLASSES[sl.cls].color)}">${G.CLASSES[sl.cls].name}</span><span class="s-who">${who}</span></button>`;
   }).join('');
-  $('#pitch').innerHTML = `<div class="king-spot"><span>👑</span>King<br>300 HP</div>
+  $('#pitch').innerHTML = `<div class="king-spot"><span>👑</span>King<br>400 HP</div>
     <div class="lane"><div class="lane-title">Defense</div>${lane('D')}</div>
     <div class="lane"><div class="lane-title">Midfield</div>${lane('M')}</div>
     <div class="lane"><div class="lane-title">Attack →</div>${lane('A')}</div>`;
@@ -1147,6 +1114,8 @@ $('#gearBtn').onclick = () => { $('#settings').classList.toggle('hidden'); if (d
 $('#closeSettings').onclick = () => $('#settings').classList.add('hidden');
 $('#sensInput').oninput = e => { sens = +e.target.value; store.set('cc_sens', sens); };
 $('#muteInput').onchange = e => { muted = e.target.checked; store.set('cc_mute', muted); };
+$('#musicInput').checked = musicOn;
+$('#musicInput').onchange = e => { musicOn = e.target.checked; store.set('cc_music', musicOn); unlockAudio(); };
 $('#leaveBtn').onclick = () => {
   socket.emit('leave');
   session.clear(); myId = null; lobby = null;
@@ -1402,7 +1371,6 @@ function handleEvent(e) {
       explodeFx(e.x, e.y, e.z, c, e.id === myId || e.king);
       if (pred && Math.hypot(pred.x - e.x, pred.z - e.z) < 14) shakeT = Math.max(shakeT, e.id === myId ? 0.6 : 0.3);
       crowdExcite = Math.min(2, crowdExcite + (e.king ? 2 : 0.6));
-      if (e.king) cheer('big'); else if (e.by === myId || (pred && Math.hypot(pred.x - e.x, pred.z - e.z) < 20)) cheer(e.by === myId ? 'medium' : 'small');
       if (e.id === myId) {
         deathAt = performance.now(); showYouDied();
         killerId = e.by && e.by !== myId ? e.by : null; killCause = e.cause || null;
@@ -1441,8 +1409,8 @@ function handleEvent(e) {
       break;
     case 'overtime':
       flashCenter('OVERTIME!', 2600);
-      feed('⚡ Overtime: health halved, damage ×2, speed ×2' + (lobby.mode === 'ktk' ? ', Kings unprotected' : ''));
-      crowdExcite = 2; cheer('big', 'oh'); sfx.boom();
+      feed('⚡ Overtime: health halved, damage ×2, speed ×2');
+      crowdExcite = 2; sfx.boom();
       break;
     case 'order': {
       const me2 = lobbyPlayer(myId);
@@ -1505,13 +1473,11 @@ function handleEvent(e) {
       finaleOrbit = Math.atan2(camera.position.x, camera.position.z);
       if (document.pointerLockElement) document.exitPointerLock();
       sfx.ko(); setTimeout(() => sfx.zone(), 350); setTimeout(() => tone(1046, 0.6, 'triangle', 0.09), 700);
-      cheer('big');
       break;
     }
     case 'frenzy':
       flashCenter('FINAL FRENZY!', 2200);
       crowdExcite = Math.min(2, crowdExcite + 1);
-      cheer('medium');
       feed('🔥 Last 30 s: double damage, fast power-ups, 3 s respawns');
       sfx.boom();
       break;
@@ -1913,7 +1879,7 @@ function frame() {
   animateWorldObjs(now, dt);
   if (boomLightT > 0) { boomLightT = Math.max(0, boomLightT - realDt); boomLight.intensity = boomLightT / 0.35 * 7; }
   animateCrowd(now, realDt);
-  updateCrowdAudio();
+  updateMusic();
   updateEffects(dt);
   if (zoneBeam && lastSnap) {
     const z = lastSnap.zone;
@@ -2021,7 +1987,6 @@ function updateHud(now) {
       const k = s.kg[t];
       $(el).style.width = k ? (k.hp / k.mhp * 100) + '%' : '0%';
       $(t === 'red' ? '#kgRed' : '#kgBlue').classList.toggle('hidden', !(k && k.gd));
-      $(t === 'red' ? '#kpRed' : '#kpBlue').classList.toggle('hidden', !(k && k.pf));
       const kc = k && chars.get(k.id);
       if (kc) { if (!kc.dome) { kc.dome = new THREE.Mesh(new THREE.SphereGeometry(2.1, 20, 14, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.18, depthWrite: false, side: THREE.DoubleSide })); kc.model.group.add(kc.dome); } kc.dome.visible = !!k.gd; }
       $(txt).textContent = k ? k.hp : 0;

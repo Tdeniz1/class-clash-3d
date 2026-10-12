@@ -148,7 +148,7 @@ export const CLASSES = {
 
 // The King in Kill the King: slow, tanky, short sword. Not pickable by players.
 CLASSES.king = {
-  name: 'King', role: 'Protect him', color: 0xd4a017, hp: 300, speed: 2.6, size: 1.3,
+  name: 'King', role: 'Protect him', color: 0xd4a017, hp: 400, speed: 2.6, size: 1.3,
   attack: { type: 'melee', range: 2.3, arc: 100, dmg: 10, cd: 1.0, kb: 3 },
   ability: { id: 'none', name: '—', cd: 999 },
   atkText: 'Short sword — 10 dmg', ablText: '—', passiveText: '—',
@@ -177,8 +177,6 @@ export const FRENZY_PICKUP_RATE = 5;
 export const KING_AURA = { HEAL_R: 5, HEAL: 4, SPEED_R: 10, SPEED: 1.2 };
 // King's Guard: with GUARD_MIN+ teammates within GUARD_R m, the King takes GUARD_DMG of normal damage
 export const KING_GUARD = { R: 6, MIN: 2, DMG: 0.3 };
-// Kings can't drop below this share of their health until the Final Frenzy (so matches go the distance)
-export const KING_FLOOR = 0.1;
 // Overtime on a tie: health halved, damage and speed doubled
 export const OVERTIME_TIME = 60;
 export const OVERTIME = { HP: 0.5, DMG: 2, SPEED: 2 };
