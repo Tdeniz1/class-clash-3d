@@ -70,8 +70,8 @@ renderer.shadowMap.enabled = !isTouch;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xf0cf95);
-scene.fog = new THREE.Fog(0xf0cf95, 45, 110);
-const camera = new THREE.PerspectiveCamera(isTouch ? 74 : 68, 1, 0.1, 250);
+scene.fog = new THREE.Fog(0xf2d3a0, 70, 520);
+const camera = new THREE.PerspectiveCamera(isTouch ? 74 : 68, 1, 0.1, 1200);
 camera.position.set(0, 26, 34);
 camera.lookAt(0, 0, 0);
 
@@ -184,6 +184,7 @@ function buildArena(map) {
     arenaGroup.add(m); obstacles.push(m);
   }
   if (map.key === 'field') buildFieldMarkings(map);
+  buildScenery(map, hx, hz);
 }
 
 // Kill the King pitch: team-tinted halves, halfway line, respawn lines and bot-limit lines
@@ -310,6 +311,178 @@ function animateCrowd(now, dt) {
   crowdU.uTime.value = now / 1000;
   crowdU.uAmp.value = 0.05 + fz * 0.2 + crowdExcite * 0.3;
   crowdU.uExcite.value = 0.08 + fz * 0.25 + crowdExcite * 0.45; // share of fans with arms up
+}
+
+// ---------- scenery: sky, sun, clouds, mountains, castles ----------
+// Sky dome with a warm horizon fading to blue overhead (drawn behind everything, no fog)
+const sky = (() => {
+  const geo = new THREE.SphereGeometry(900, 32, 16), pos = geo.attributes.position, col = [];
+  const top = new THREE.Color(0x7fb4e6), mid = new THREE.Color(0xf6d9a8), low = new THREE.Color(0xf2c48a), c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const h = pos.getY(i) / 900;
+    if (h > 0.05) c.copy(mid).lerp(top, Math.min(1, (h - 0.05) / 0.45)); else c.copy(low).lerp(mid, Math.max(0, (h + 0.2) / 0.25));
+    col.push(c.r, c.g, c.b);
+  }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
+  m.renderOrder = -1; scene.add(m);
+  // soft sun in the light's direction
+  const sunDisc = new THREE.Mesh(new THREE.CircleGeometry(26, 32), new THREE.MeshBasicMaterial({ color: 0xfff4d6, fog: false, transparent: true, opacity: 0.95 }));
+  const glow = new THREE.Mesh(new THREE.CircleGeometry(60, 32), new THREE.MeshBasicMaterial({ color: 0xffe2a8, fog: false, transparent: true, opacity: 0.25, depthWrite: false }));
+  const dir = new THREE.Vector3(-18, 30, 12).normalize().multiplyScalar(820);
+  for (const d of [glow, sunDisc]) { d.position.copy(dir); d.lookAt(0, 0, 0); scene.add(d); }
+  return m;
+})();
+scene.background = new THREE.Color(0xf2d3a0);
+
+// drifting clouds
+const clouds = [];
+{
+  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0xb8b8c0, transparent: true, opacity: 0.92, flatShading: true });
+  for (let i = 0; i < 9; i++) {
+    const c = new THREE.Group();
+    for (let k = 0; k < 4; k++) {
+      const puff = new THREE.Mesh(new THREE.IcosahedronGeometry(8 + Math.random() * 6, 0), mat);
+      puff.position.set(k * 9 - 14 + Math.random() * 4, Math.random() * 4, Math.random() * 6);
+      puff.scale.y = 0.55; c.add(puff);
+    }
+    const a = Math.random() * Math.PI * 2, r = 180 + Math.random() * 220;
+    c.position.set(Math.cos(a) * r, 95 + Math.random() * 50, Math.sin(a) * r);
+    c.userData.speed = 1.5 + Math.random() * 2;
+    scene.add(c); clouds.push(c);
+  }
+}
+
+// a castle: curtain wall with crenellations, corner towers, gatehouse, tall keep, flags (merged per material)
+function makeCastle(flagColor) {
+  const parts = { stone: [], roof: [], dark: [], flag: [], wood: [] };
+  const box = (k, w, h, d, x, y, z) => { const g = new THREE.BoxGeometry(w, h, d); g.translate(x, y, z); parts[k].push(g); };
+  const cyl = (k, rt, rb, h, x, y, z, seg = 10) => { const g = new THREE.CylinderGeometry(rt, rb, h, seg); g.translate(x, y, z); parts[k].push(g); };
+  const cone = (k, r, h, x, y, z, seg = 10) => { const g = new THREE.ConeGeometry(r, h, seg); g.translate(x, y, z); parts[k].push(g); };
+  const W = 34, H = 10;
+  for (const [w, d, x, z] of [[W, 2.2, 0, -W / 2], [W, 2.2, 0, W / 2], [2.2, W, -W / 2, 0], [2.2, W, W / 2, 0]]) {
+    box('stone', w, H, d, x, H / 2, z);
+    const n = Math.round(Math.max(w, d) / 2.6);
+    for (let i = 0; i < n; i++) { const t = -0.5 + (i + 0.5) / n; box('stone', w > d ? 1.3 : 2.4, 1.4, w > d ? 2.4 : 1.3, x + (w > d ? t * w : 0), H + 0.7, z + (w > d ? 0 : t * d)); }
+  }
+  for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    cyl('stone', 3.4, 3.8, 17, x * W / 2, 8.5, z * W / 2);
+    cone('roof', 4.3, 7, x * W / 2, 20.5, z * W / 2);
+    cyl('wood', 0.12, 0.12, 4, x * W / 2, 25.5, z * W / 2, 5);
+    box('flag', 2.4, 1.4, 0.1, x * W / 2 + 1.2, 26.6, z * W / 2);
+  }
+  box('stone', 9, 14, 6, 0, 7, W / 2);               // gatehouse
+  box('dark', 4.4, 6.5, 0.4, 0, 3.25, W / 2 + 3.1);   // gate
+  box('stone', 14, 22, 14, 0, 11, 0);                 // keep
+  for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) cyl('stone', 2.2, 2.4, 28, x * 7, 14, z * 7);
+  cone('roof', 3, 6, -7, 31, -7); cone('roof', 3, 6, 7, 31, -7); cone('roof', 3, 6, -7, 31, 7); cone('roof', 3, 6, 7, 31, 7);
+  cyl('stone', 3.2, 3.4, 12, 0, 28, 0); cone('roof', 4.4, 9, 0, 38.5, 0);
+  cyl('wood', 0.14, 0.14, 6, 0, 46, 0, 5); box('flag', 3.6, 2, 0.12, 1.8, 47.8, 0);
+  for (let i = 0; i < 4; i++) for (const side of [-1, 1]) box('dark', 1.2, 2, 0.3, -4.5 + i * 3, 13 + (i % 2) * 4, side * 7.05);
+  const mats = { stone: lam(0xc9bfae), roof: lam(0x7a3b2e), dark: lam(0x2b2420), flag: new THREE.MeshLambertMaterial({ color: flagColor, side: THREE.DoubleSide }), wood: lam(0x5a4632) };
+  const g = new THREE.Group();
+  for (const [k, list] of Object.entries(parts)) if (list.length) g.add(new THREE.Mesh(mergeGeometries(list), mats[k]));
+  return g;
+}
+
+function buildScenery(map, hx, hz) {
+  // grassland beyond the stadium
+  const land = new THREE.Mesh(new THREE.CircleGeometry(800, 48), lam(0xa39a5c));
+  land.rotation.x = -Math.PI / 2; land.position.y = -0.08; arenaGroup.add(land);
+  // distant mountains ring
+  // pre-hazed blue-violet, no fog, so they read as far-off mountains instead of sand dunes
+  const mm = c => new THREE.MeshLambertMaterial({ color: c, flatShading: true, fog: false });
+  const mtnMats = [mm(0x8d97bd), mm(0x7f8db5), mm(0x9aa1c4)], snow = mm(0xf7f6f2);
+  for (let i = 0; i < 28; i++) {
+    const a = i / 28 * Math.PI * 2 + Math.random() * 0.1, r = 330 + Math.random() * 90, h = 45 + Math.random() * 75, w = 45 + Math.random() * 35;
+    const m = new THREE.Mesh(new THREE.ConeGeometry(w, h, 5 + (i % 3)), mtnMats[i % 3]);
+    m.position.set(Math.cos(a) * r, h / 2 - 2, Math.sin(a) * r); m.rotation.y = Math.random() * 3;
+    arenaGroup.add(m);
+    if (h > 95) { const cap = new THREE.Mesh(new THREE.ConeGeometry(w * 0.28, h * 0.28, 5 + (i % 3)), snow); cap.position.set(m.position.x, h - h * 0.14 - 2, m.position.z); cap.rotation.y = m.rotation.y; arenaGroup.add(cap); }
+  }
+  // castles on hills: one per team behind each end in Kill the King, one on the horizon in the colosseum
+  const spots = map.key === 'field'
+    ? [{ x: -(hx + 62), z: 0, flag: G.TEAM_COLORS.red, face: Math.PI / 2 }, { x: hx + 62, z: 0, flag: G.TEAM_COLORS.blue, face: -Math.PI / 2 }]
+    : [{ x: 0, z: -(hz + 80), flag: 0xb5302a, face: 0 }];
+  for (const sp of spots) {
+    const hill = new THREE.Mesh(new THREE.SphereGeometry(42, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), lam(0x8f8a52));
+    hill.scale.y = 0.22; hill.position.set(sp.x, -1, sp.z); arenaGroup.add(hill);
+    const c = makeCastle(sp.flag);
+    c.position.set(sp.x, 7.5, sp.z); c.rotation.y = sp.face; arenaGroup.add(c);
+  }
+}
+
+// ---------- the dragon: circles above the stadium, flaps, sways, breathes fire now and then ----------
+const dragon = (() => {
+  const red = lam(0x9b2226), belly = lam(0xe0a841), dark = lam(0x3b1010), horn = lam(0xf1e3c6);
+  const wingMat = new THREE.MeshLambertMaterial({ color: 0xb23a3a, side: THREE.DoubleSide, flatShading: true });
+  const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
+  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(1.3, 4.5, 4, 8), red); torso.rotation.x = Math.PI / 2; body.add(torso);
+  const bellyM = new THREE.Mesh(new THREE.CapsuleGeometry(1.0, 4, 4, 8), belly); bellyM.rotation.x = Math.PI / 2; bellyM.position.y = -0.45; body.add(bellyM);
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.85, 3.4, 8), red); neck.position.set(0, 0.9, 3.6); neck.rotation.x = Math.PI / 2 - 0.5; body.add(neck);
+  const head = new THREE.Group(); head.position.set(0, 2, 5.4); body.add(head);
+  head.add(Object.assign(new THREE.Mesh(new THREE.BoxGeometry(1.3, 1.0, 2.4), red), {}));
+  const jaw = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.35, 1.9), dark); jaw.position.set(0, -0.55, 0.3); head.add(jaw);
+  for (const sx of [-1, 1]) {
+    const h = new THREE.Mesh(new THREE.ConeGeometry(0.18, 1.2, 5), horn); h.position.set(sx * 0.45, 0.8, -0.8); h.rotation.x = -0.9; head.add(h);
+    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.18), new THREE.MeshBasicMaterial({ color: 0xffe14d })); eye.position.set(sx * 0.6, 0.25, 0.5); head.add(eye);
+  }
+  // spines down the back
+  for (let i = 0; i < 6; i++) { const sp = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.8, 4), dark); sp.position.set(0, 1.35, 2.2 - i * 1.1); body.add(sp); }
+  // tail: chain of segments so it can sway
+  const tail = []; let parent = body, z = -3.2;
+  for (let i = 0; i < 6; i++) {
+    const seg = new THREE.Group(); seg.position.set(0, 0, i === 0 ? z : -1.5); parent.add(seg);
+    const r = 0.9 - i * 0.13, m = new THREE.Mesh(new THREE.CylinderGeometry(Math.max(0.15, r - 0.13), r, 1.6, 6), red);
+    m.rotation.x = Math.PI / 2; m.position.z = -0.75; seg.add(m); tail.push(seg); parent = seg;
+  }
+  const spade = new THREE.Mesh(new THREE.ConeGeometry(0.6, 1.4, 4), dark); spade.rotation.x = -Math.PI / 2; spade.position.z = -1.9; parent.add(spade);
+  // wings: membrane + leading-edge bone, hinged at the shoulder
+  const wings = [];
+  for (const sx of [-1, 1]) {
+    const pivot = new THREE.Group(); pivot.position.set(sx * 1.1, 0.8, 1.0); body.add(pivot);
+    const geo = new THREE.BufferGeometry();
+    const v = [0, 0, 0, sx * 9.5, 1.5, -1.5, sx * 6.5, 0, -5.5, 0, 0, -3.2, sx * 3.5, 0.2, -4.8];
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+    geo.setIndex([0, 1, 2, 0, 2, 4, 0, 4, 3]); geo.computeVertexNormals();
+    pivot.add(new THREE.Mesh(geo, wingMat));
+    const bone = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.2, 9.6, 5), dark); bone.rotation.z = sx * (Math.PI / 2 - 0.16); bone.position.set(sx * 4.75, 0.75, -0.75); pivot.add(bone);
+    wings.push({ pivot, sx });
+  }
+  for (const sx of [-1, 1]) for (const zz of [1.6, -1.8]) { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.1, 0.5), red); leg.position.set(sx * 0.9, -1.3, zz); leg.rotation.x = 0.6; body.add(leg); }
+  root.scale.setScalar(1.15);
+  scene.add(root);
+  return { root, body, head, jaw, tail, wings, a: Math.random() * 6.28, low: 0, nextFire: 12 + Math.random() * 10 };
+})();
+
+function dragonSwoop() { dragon.low = 1; dragon.nextFire = 0.4; sfx.dragonRoar(); }
+function updateDragon(now, dt) {
+  const d = dragon, t = now / 1000;
+  d.low = Math.max(0, d.low - dt * 0.12);
+  const rx = curMap.halfX + 46, rz = curMap.halfZ + 42;
+  d.a += dt * (0.11 + d.low * 0.06);
+  const alt = 46 - d.low * 22 + Math.sin(d.a * 2) * 5;
+  const pos = new THREE.Vector3(Math.cos(d.a) * rx, alt, Math.sin(d.a) * rz);
+  const ahead = new THREE.Vector3(Math.cos(d.a + 0.05) * rx, 46 - d.low * 22 + Math.sin((d.a + 0.05) * 2) * 5, Math.sin(d.a + 0.05) * rz);
+  d.root.position.copy(pos);
+  d.root.lookAt(ahead);
+  d.body.rotation.z = 0.35 + Math.sin(t * 0.7) * 0.05; // banked into the turn
+  const flap = Math.sin(t * (3.2 + d.low * 2));
+  for (const w of d.wings) w.pivot.rotation.z = w.sx * flap * 0.65;
+  d.body.position.y = -flap * 0.5;
+  d.tail.forEach((seg, i) => { seg.rotation.y = Math.sin(t * 1.6 - i * 0.6) * 0.18; seg.rotation.x = Math.sin(t * 1.1 - i * 0.5) * 0.06; });
+  // fire breath every so often
+  d.nextFire -= dt;
+  d.jaw.rotation.x = d.nextFire < 0 && d.nextFire > -1.4 ? 0.45 : 0;
+  if (d.nextFire < 0 && d.nextFire > -1.4 && Math.random() < 0.7) {
+    const mouth = new THREE.Vector3(0, -0.4, 1.6); d.head.localToWorld(mouth);
+    const fwd = ahead.clone().sub(pos).normalize().multiplyScalar(26);
+    const m = new THREE.Mesh(new THREE.IcosahedronGeometry(0.9, 0), new THREE.MeshBasicMaterial({ color: Math.random() < 0.5 ? 0xff8c1a : 0xffd23f, transparent: true, depthWrite: false }));
+    m.position.copy(mouth); scene.add(m);
+    const v = fwd.add(new THREE.Vector3((Math.random() - 0.5) * 4, -3 + Math.random() * 3, (Math.random() - 0.5) * 4));
+    effects.push({ m, t: 0, dur: 0.9, update(k, edt) { m.position.addScaledVector(v, edt); m.scale.setScalar(1 + k * 3.5); m.material.opacity = 1 - k; } });
+  }
+  if (d.nextFire < -1.4) d.nextFire = 14 + Math.random() * 14;
 }
 
 // ---------- zone ----------
@@ -785,6 +958,7 @@ const sfx = {
   hit: () => { noiseBurst({ dur: 0.12, freq: 1100, q: 0.9, vol: 0.28 }); tone(160, 0.09, 'triangle', 0.07, -70); },
   hurt: () => { noiseBurst({ dur: 0.2, freq: 380, q: 0.7, vol: 0.32 }); tone(95, 0.18, 'sawtooth', 0.06, -40); },
   swing: () => noiseBurst({ dur: 0.16, freq: 2400, q: 1.8, vol: 0.07, sweep: -1700, attack: 0.03 }),
+  dragonRoar: () => { tone(110, 1.1, 'sawtooth', 0.07, -60); tone(146, 0.9, 'sawtooth', 0.05, -80); noiseBurst({ dur: 1.1, freq: 500, q: 0.6, vol: 0.12, type: 'lowpass', sweep: -250, attack: 0.15 }); },
   alarm: () => { tone(880, 0.12, 'square', 0.06); setTimeout(() => tone(660, 0.16, 'square', 0.06), 140); },
   ko: () => { tone(520, 0.12, 'square', 0.06); setTimeout(() => tone(780, 0.2, 'square', 0.06), 90); },
   ability: () => tone(300, 0.25, 'triangle', 0.08, 400),
@@ -1469,6 +1643,7 @@ function handleEvent(e) {
       $('#finaleBanner').classList.remove('hidden');
       $('#hud').classList.add('finale');
       document.body.classList.add('finale');
+      dragonSwoop();
       crowdExcite = 2;
       finaleOrbit = Math.atan2(camera.position.x, camera.position.z);
       if (document.pointerLockElement) document.exitPointerLock();
@@ -1477,6 +1652,7 @@ function handleEvent(e) {
     }
     case 'frenzy':
       flashCenter('FINAL FRENZY!', 2200);
+      dragonSwoop();
       crowdExcite = Math.min(2, crowdExcite + 1);
       feed('🔥 Last 30 s: double damage, fast power-ups, 3 s respawns');
       sfx.boom();
@@ -1680,6 +1856,8 @@ const starMesh = (() => {
 })();
 
 function animateWorldObjs(now, dt) {
+  for (const c of clouds) { c.position.x += c.userData.speed * dt; if (c.position.x > 420) c.position.x = -420; }
+  updateDragon(now, dt);
   for (const [, o] of pickupObjs) {
     o.userData.item.position.y = 1.0 + Math.sin(now / 300 + o.position.x) * 0.15;
     o.userData.item.rotation.y += dt * 1.8;

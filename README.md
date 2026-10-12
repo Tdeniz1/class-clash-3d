@@ -12,6 +12,8 @@ I'm using this repository for an AI competition: the **Handshake AI Skills Studi
 
 This repo is my working prototype and design reference for that project. It was built with AI assistance (Claude Code, by Anthropic): I made the design decisions (modes, classes, the draft, the King, the crowd, the finale) and directed and play-tested each change, and the AI wrote and tested the code. The challenge's official rules say the submitted project must be built in ChatGPT, so this repo is the reference, not the official entry.
 
+![Castles, mountains and the dragon](docs/screenshots/castle-dragon.png)
+
 | Draft your team | Knockouts | Results |
 |---|---|---|
 | ![Draft](docs/screenshots/draft.png) | ![Knockout](docs/screenshots/knockout.png) | ![Results](docs/screenshots/results.png) |
@@ -40,6 +42,7 @@ Rooms live in server memory, so keep the service at **1 replica**: with more, pl
 - **Close matches by design:** comeback bots quietly sharpen the trailing team's bots and soften the leading team's, so matches stay close. A tie (Kings within 5% health, or tied scores in the arena) goes to **Overtime**: health halved, damage ×2, speed ×2.
 - **Easy to land hits:** a hit marker flashes on your crosshair when you connect (red on a knockout), and human players get a forgiving melee swing (wider cone, more reach, point-blank hits anything in front) plus slightly bigger projectile hitboxes. Bots use the plain numbers.
 - **Also in every match:** a kill cam (the camera turns to whoever got you, with their name, class and distance), emotes (keys 1–4 or the 😀 button: wave, cheer, taunt, dance), Kill the King call-outs ("Your King is under attack!" plus an arrow to him), and soft background music (toggle it in ⚙ settings).
+- **Scenery:** a sky with drifting clouds and distant mountains, a castle on the horizon (one per team behind each end in Kill the King), and a dragon that circles the stadium, breathes fire now and then, and swoops in with a roar for the Final Frenzy and the finale.
 - **All modes:** a crowd of fans fills the stands and cheers on knockouts. Bots show "(bot)" under their names. The winning moment plays as a slow-motion finale (cinematic bars, winner banner, camera circling the fallen King or the winner) before MVP award cards and the results table. Knocked-out players (and knocked-out bots) vote where the next bonus power-up drops (every 12 s): Red side / Middle / Blue side (West / Middle / East in the colosseum). Every match gets a random pillar-and-wall layout (mirrored on the Kill the King field so it stays fair).
 
 ## Features
