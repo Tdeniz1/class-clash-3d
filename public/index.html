@@ -54,7 +54,7 @@
   <!-- LOBBY -->
   <section id="lobby" class="screen hidden">
     <div class="lobby-wrap">
-      <p id="iosTip" class="ios-tip hidden">📱 <strong>iPhone full screen:</strong> Share → <em>Add to Home Screen</em>, then play from the home-screen icon. <button id="iosTipClose" class="x-btn" aria-label="Dismiss tip">×</button></p>
+      <p id="iosTip" class="ios-tip hidden">📱 <strong>Full screen:</strong> Share → <em>Add to Home Screen</em> <button id="iosTipClose" class="x-btn" aria-label="Dismiss tip">×</button></p>
       <header class="lobby-head">
         <div>
           <div class="eyebrow">Room code</div>
@@ -125,24 +125,26 @@
         </div>
         <div class="draft-timer" aria-live="polite"><span id="draftTimer">30</span><small>sec</small></div>
       </header>
-      <p class="draft-hint">Pick a line-up · tap a spot → <em>Play here</em> · tap a bot's spot → pick its class</p>
-      <ol class="draft-steps">
-        <li><b>Line-up:</b> how many Defenders – Midfield – Attackers.</li>
-        <li><b>Your spot:</b> tap a spot, then <em>Play here</em>.</li>
-        <li><b>Bots:</b> tap any bot's spot and pick its class.</li>
-      </ol>
-      <div class="draft-body">
-        <div id="pitch" class="pitch"></div>
-        <div class="draft-side">
-          <div id="formSeg" class="form-seg" role="group" aria-label="Line-up"></div>
-          <div class="draft-bottom">
-            <div id="slotInfo" class="slot-info"></div>
-            <button id="takeSlotBtn" class="btn btn-small btn-primary">Play here</button>
-          </div>
-          <div id="draftClasses" class="draft-classes" role="group" aria-label="Class for the selected spot"></div>
-        </div>
+      <div class="draft-row">
+        <div class="draft-label">1 · Game plan</div>
+        <div id="planSeg" class="choice-seg" role="group" aria-label="Game plan"></div>
       </div>
-      <p class="muted small draft-note"><b>You're the captain:</b> during the fight, order your bots with Z ⚔ Attack · X 🛡 Defend · C 🚩 Follow me · V 🎯 Focus · B ↺ Formation (📣 on phones). Bots stay in their zone: defenders stay in your half, attackers stay forward. You can go anywhere. Kill their King (400 HP) to win, and protect yours. A tie at the buzzer goes to Overtime. Unpicked spots get picked for you.</p>
+      <div class="draft-row">
+        <div class="draft-label">2 · Your position</div>
+        <div id="roleSeg" class="choice-seg" role="group" aria-label="Your position"></div>
+      </div>
+      <div class="draft-row">
+        <div class="draft-label" id="classLabel">3 · Your class</div>
+        <div id="draftClasses" class="draft-classes" role="group" aria-label="Class"></div>
+      </div>
+      <div class="draft-foot">
+        <button id="customizeBtn" class="link-btn" aria-expanded="false">Customize bots ▸</button>
+        <span class="muted small">Bots fill every other spot automatically.</span>
+      </div>
+      <div id="customize" class="customize hidden">
+        <p class="muted small">Tap a bot, then pick its class above.</p>
+        <div id="pitch" class="pitch"></div>
+      </div>
     </div>
   </section>
 

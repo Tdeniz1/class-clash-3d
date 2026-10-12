@@ -160,6 +160,12 @@ export const DRAFT_TIME = 30;    // seconds to pick line-up, spots and classes (
 export const TEAM_SIZE = 8;      // fighters per team (plus the King); bots fill empty spots
 // Line-ups as [defenders, midfield, attackers]
 export const FORMATIONS = [[3, 3, 2], [2, 4, 2], [4, 2, 2], [2, 3, 3], [3, 2, 3], [2, 2, 4]];
+// The three game plans shown in the draft (simple names for line-ups)
+export const PLANS = [
+  { id: 'defensive', name: 'Defensive', icon: '🛡', f: [4, 2, 2] },
+  { id: 'balanced', name: 'Balanced', icon: '⚖', f: [3, 3, 2] },
+  { id: 'aggressive', name: 'Aggressive', icon: '⚔', f: [2, 2, 4] },
+];
 export const ROLE_NAMES = { D: 'Defender', M: 'Midfield', A: 'Attacker' };
 // Distance from centre (along the field) where each role spawns, and where the King lives
 export const ROLE_SPAWN = { K: 31, D: 25, M: 17, A: 11 };

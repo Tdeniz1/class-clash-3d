@@ -1247,13 +1247,14 @@ io.on('connection', socket => {
     if (room) return;
     const code = makeCode();
     const r = {
-      code, hostId: null, players: new Map(), mode: 'ffa', botLevel: 'normal', phase: 'lobby', results: null,
+      code, hostId: null, players: new Map(), mode: 'ktk', botLevel: 'normal', phase: 'lobby', results: null,
       projectiles: [], events: [], teamScore: Object.fromEntries(G.TEAMS.map(t => [t, 0])), meteors: [], pickups: [], zoneIdx: 0, nextZoneIdx: null, zoneT: G.ZONE_PERIOD,
-      map: G.MAPS.arena, draft: null, draftT: 0, votes: new Map(), crowdT: 0,
+      map: G.MAPS.field, draft: null, draftT: 0, votes: new Map(), crowdT: 0,
       timer: 0, time: 0, emptySince: null,
     };
     rooms.set(code, r);
     const p = newPlayer(cleanName(name), { socketId: socket.id });
+    p.team = 'red';
     r.players.set(p.id, p);
     r.hostId = p.id;
     assignColor(r, p);
@@ -1376,6 +1377,16 @@ io.on('connection', socket => {
   socket.on('draftReady', val => {
     if (!me || room.phase !== 'draft') return;
     if (val) room.draftReady.add(me.id); else room.draftReady.delete(me.id);
+    broadcastLobby(room);
+  });
+
+  socket.on('draftRole', role => {
+    if (!me || room.phase !== 'draft' || !['D', 'M', 'A'].includes(role)) return;
+    const d = room.draft[me.team];
+    const sl = d.slots.find(x => x.role === role && !x.humanId);
+    if (!sl) return;
+    for (const o of d.slots) if (o.humanId === me.id) o.humanId = null;
+    sl.humanId = me.id; sl.cls = me.cls;
     broadcastLobby(room);
   });
 

@@ -403,7 +403,7 @@ function buildScenery(map, hx, hz) {
   // castles on hills: one per team behind each end in Kill the King, one on the horizon in the colosseum
   const spots = map.key === 'field'
     ? [{ x: -(hx + 62), z: 0, flag: G.TEAM_COLORS.red, face: Math.PI / 2 }, { x: hx + 62, z: 0, flag: G.TEAM_COLORS.blue, face: -Math.PI / 2 }]
-    : [{ x: 0, z: -(hz + 80), flag: 0xb5302a, face: 0 }];
+    : [{ x: 0, z: -(hz + 80), flag: 0xb5302a, face: 0 }, { x: 0, z: hz + 80, flag: 0xe3a857, face: Math.PI }];
   for (const sp of spots) {
     const hill = new THREE.Mesh(new THREE.SphereGeometry(42, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), lam(0x8f8a52));
     hill.scale.y = 0.22; hill.position.set(sp.x, -1, sp.z); arenaGroup.add(hill);
@@ -1045,11 +1045,10 @@ for (const id of G.CLASS_ORDER) {
   const b = document.createElement('button');
   b.className = 'class-card'; b.dataset.cls = id;
   b.innerHTML = `<div class="swatch" style="background:${hex(c.color)}"></div>
-    <h3>${c.name}</h3><div class="role">${c.role}</div>
-    <div class="stats">${c.hp} HP · ${c.attack.dmg} dmg · ${reach(c)}</div>
-    <div class="spec">✦ ${c.ability.name}</div>
-    <p><b>Attack:</b> ${c.atkText}</p><p><b>Special:</b> ${c.ablText}</p><p><b>Passive:</b> ${c.passiveText}</p>
+    <h3>${c.name}</h3>
+    <div class="cstat">❤ ${c.hp} health</div><div class="cstat">⚔ ${c.attack.dmg} damage</div><div class="spec">✦ ${c.ability.name}</div>
     <div class="pickers"></div>`;
+  b.title = `${c.name} (${reach(c)}): ${c.atkText}. Special: ${c.ablText}. Passive: ${c.passiveText}`;
   b.onclick = () => socket.emit('setClass', id);
   classGrid.appendChild(b);
 }
@@ -1062,11 +1061,12 @@ $('#readyBtn').onclick = () => {
   goFullscreen(); const me = lobbyPlayer(myId); socket.emit('ready', !(me && me.ready)); };
 $('#startBtn').onclick = () => { goFullscreen(); socket.emit('start'); };
 $('#againBtn').onclick = () => socket.emit('backToLobby');
+$('#copyLinkBtn').textContent = isTouch ? '🔗 Invite' : 'Copy invite link';
 $('#copyLinkBtn').onclick = async () => {
   const url = inviteBase + '?room=' + lobby.code;
   try { await navigator.clipboard.writeText(url); $('#copyLinkBtn').textContent = 'Link copied!'; }
   catch { prompt('Share this link:', url); }
-  setTimeout(() => { $('#copyLinkBtn').textContent = 'Copy invite link'; }, 1500);
+  setTimeout(() => { $('#copyLinkBtn').textContent = isTouch ? '🔗 Invite' : 'Copy invite link'; }, 1500);
 };
 $('#playerList').addEventListener('click', e => {
   const id = e.target.dataset.remove, swap = e.target.dataset.swap;
@@ -1100,7 +1100,7 @@ function renderLobby() {
   const ktk = L.mode === 'ktk';
   $('#hostTools').classList.toggle('hidden', !host || ktk);
   $('#modeInfo').classList.toggle('hidden', !ktk);
-  $('#modeInfo').innerHTML = ktk ? '<b>Kill the King</b> — 8v8 on a long field. Bots fill every empty spot. Right before the fight you get 10 seconds to pick your line-up, your spot, and a class for every bot. Kill their King (400 HP) to win.' : '';
+  $('#modeInfo').innerHTML = ktk ? '<b>Kill the King:</b> 8v8, bots fill empty spots. Kill their King (400 HP), protect yours.' : '';
   $('#addBotBtn').disabled = L.players.length >= G.MAX_PLAYERS;
   $('#fillBotsBtn').disabled = L.players.length >= G.MAX_PLAYERS;
   $('#teamPick').classList.toggle('hidden', !isTeamMode());
@@ -1118,7 +1118,7 @@ function renderLobby() {
       .map(p => `<span class="dot" title="${esc(p.name)}" style="background:${hex(ringColorFor(p))}"></span>`).join('');
   });
   const dc = G.CLASSES[me ? me.cls : 'gladiator'];
-  $('#classDetail').innerHTML = `<b>${dc.name}</b> · ${dc.hp} HP · speed ${dc.speed}<br><b>Attack:</b> ${dc.atkText}<br><b>Special:</b> ${dc.ablText}<br><b>Passive:</b> ${dc.passiveText}`;
+  $('#classDetail').innerHTML = `<b>${dc.name}</b> · ❤ ${dc.hp} health · ⚔ ${dc.attack.dmg} damage · ✦ ${dc.ability.name}: ${dc.ablText.split(' — ')[1] || ''}`;
   $('#iosTip').classList.toggle('hidden', !(showIosTip && !store.get('cc_iostip_done', false)));
   updateFsBtn();
   const ready = me && me.ready;
@@ -1180,7 +1180,7 @@ socket.on('lobby', L => {
   const inMatch = ['countdown', 'playing', 'sudden'].includes(L.phase);
   setMap(L.map, L.layout);
   if (L.phase === 'draft') {
-    if (prevPhase !== 'draft') { resetMatchState(); selSlot = null; }
+    if (prevPhase !== 'draft') { resetMatchState(); selSlot = null; customizeOpen = false; }
     draftDeadline = performance.now() + L.draftLeft * 1000;
     renderDraft(); showScreen('draft');
   }
@@ -1226,56 +1226,72 @@ if (isTouch) {
   document.querySelector('.rules').innerHTML = '<strong>How to play:</strong> left thumb moves · drag the right side to look · ⚔ attack · ✦ special · ⤒ jump. Stand in the glowing zone to score.';
 }
 
-// ---------- Kill the King draft ----------
-let selSlot = null, draftDeadline = 0;
+// ---------- Kill the King draft: game plan, your position, your class (bots optional) ----------
+let selSlot = null, draftDeadline = 0, customizeOpen = false;
 const myDraft = () => { const me = lobbyPlayer(myId); return lobby && lobby.draft && me ? lobby.draft[me.team] : null; };
-
-for (const id of G.CLASS_ORDER) {
-  const c = G.CLASSES[id];
-  const mk = () => {
-    const b = document.createElement('button'); b.dataset.cls = id;
-    b.innerHTML = `<i style="background:${hex(c.color)}"></i><span class="cn">${c.name}</span><small>${c.hp} HP · ${c.attack.dmg} dmg</small><small>${reach(c)} · ✦ ${c.ability.name}</small>`;
-    b.title = `${c.name}: ${c.atkText}. Special: ${c.ablText}. Passive: ${c.passiveText}`;
-    return b;
-  };
-  $('#draftClasses').appendChild(mk());
-  $('#deathClasses').appendChild(mk());
-}
+// compact class button: name, health, damage, special (full description in the tooltip)
+const classBtn = id => {
+  const c = G.CLASSES[id], b = document.createElement('button');
+  b.dataset.cls = id;
+  b.innerHTML = `<i style="background:${hex(c.color)}"></i><span class="cn">${c.name}</span><small>❤ ${c.hp} · ⚔ ${c.attack.dmg}</small><small>✦ ${c.ability.name}</small>`;
+  b.title = `${c.name} (${reach(c)}): ${c.atkText}. Special: ${c.ablText}. Passive: ${c.passiveText}`;
+  return b;
+};
+for (const id of G.CLASS_ORDER) { $('#draftClasses').appendChild(classBtn(id)); $('#deathClasses').appendChild(classBtn(id)); }
 
 function renderDraft() {
   const d = myDraft(), me = lobbyPlayer(myId);
   if (!d || !me) return;
-  if (selSlot == null || selSlot >= d.slots.length) selSlot = Math.max(0, d.slots.findIndex(sl => sl.humanId === myId));
+  const mine = d.slots.findIndex(sl => sl.humanId === myId);
+  if (!customizeOpen || selSlot == null || selSlot >= d.slots.length) selSlot = mine;
   $('#draftTeam').textContent = `Kill the King · ${G.TEAM_NAMES[me.team]} team`;
+  $('#draftTeam').style.color = hex(G.TEAM_COLORS[me.team]);
   const rdy = lobby.draftReady || [], humansIn = lobby.players.filter(p => !p.isBot && p.connected);
   const iAmReady = rdy.includes(myId);
   $('#draftReadyBtn').textContent = iAmReady ? '✓ Ready' : 'Ready';
   $('#draftReadyBtn').classList.toggle('on', iAmReady);
-  $('#draftReadyCount').textContent = `${rdy.length}/${humansIn.length} ready · starts when all are`;
-  $('#draftTeam').style.color = hex(G.TEAM_COLORS[me.team]);
-  $('#formSeg').innerHTML = G.FORMATIONS.map(f => `<button data-f="${f.join('-')}" class="${f.join() === d.formation.join() ? 'on' : ''}" aria-pressed="${f.join() === d.formation.join()}">${f.join('-')}</button>`).join('');
-  const lane = role => d.slots.map((sl, i) => ({ sl, i })).filter(x => x.sl.role === role).map(({ sl, i }) => {
-    const h = sl.humanId && lobbyPlayer(sl.humanId);
-    const who = sl.humanId === myId ? 'You' : h ? esc(h.name) : 'Bot';
-    return `<button class="slot ${sl.humanId === myId ? 'mine' : ''} ${h ? 'human' : ''} ${i === selSlot ? 'sel' : ''}" data-idx="${i}">
-      <span class="s-cls" style="color:${hex(G.CLASSES[sl.cls].color === 0x2b2d42 ? 0x9a9cc0 : G.CLASSES[sl.cls].color)}">${G.CLASSES[sl.cls].name}</span><span class="s-who">${who}</span></button>`;
+  $('#draftReadyCount').textContent = `${rdy.length}/${humansIn.length} ready`;
+  // 1 · game plan
+  $('#planSeg').innerHTML = G.PLANS.map(p => {
+    const on = p.f.join() === d.formation.join();
+    return `<button data-plan="${p.f.join('-')}" class="${on ? 'on' : ''}" aria-pressed="${on}">${p.icon} ${p.name}<small>${p.f[0]} def · ${p.f[1]} mid · ${p.f[2]} att</small></button>`;
   }).join('');
-  $('#pitch').innerHTML = `<div class="king-spot"><span>👑</span>King<br>400 HP</div>
-    <div class="lane"><div class="lane-title">Defense</div>${lane('D')}</div>
-    <div class="lane"><div class="lane-title">Midfield</div>${lane('M')}</div>
-    <div class="lane"><div class="lane-title">Attack →</div>${lane('A')}</div>`;
-  const sl = d.slots[selSlot], h = sl.humanId && lobbyPlayer(sl.humanId);
+  // 2 · your position
+  const myRole = mine >= 0 ? d.slots[mine].role : null;
+  $('#roleSeg').innerHTML = ['D', 'M', 'A'].map(r => {
+    const free = d.slots.filter(sl => sl.role === r && !sl.humanId).length, on = r === myRole;
+    return `<button data-role="${r}" class="${on ? 'on' : ''}" ${!on && !free ? 'disabled' : ''} aria-pressed="${on}">${G.ROLE_NAMES[r]}<small>${on ? 'you' : free ? free + ' open' : 'full'}</small></button>`;
+  }).join('');
+  // 3 · class (yours, or a bot's when customizing)
+  const sl = d.slots[selSlot] || d.slots[mine];
+  const editingBot = customizeOpen && selSlot !== mine;
   const roleNo = d.slots.slice(0, selSlot + 1).filter(x => x.role === sl.role).length;
-  $('#slotInfo').innerHTML = `<b>${G.ROLE_NAMES[sl.role]} ${roleNo}</b> · ${sl.humanId === myId ? 'you' : h ? esc(h.name) : 'bot'} · ${G.CLASSES[sl.cls].name}`;
-  $('#takeSlotBtn').classList.toggle('hidden', !!sl.humanId);
+  $('#classLabel').innerHTML = editingBot ? `3 · Class for bot <b>${G.ROLE_NAMES[sl.role]} ${roleNo}</b> <button class="link-btn" id="backToMe">← back to mine</button>` : '3 · Your class';
   const locked = sl.humanId && sl.humanId !== myId;
   $('#draftClasses').querySelectorAll('button').forEach(b => { b.classList.toggle('on', b.dataset.cls === sl.cls); b.disabled = !!locked; });
+  // optional: everyone's spots, to set bot classes
+  $('#customize').classList.toggle('hidden', !customizeOpen);
+  $('#customizeBtn').textContent = customizeOpen ? 'Hide bots ▾' : 'Customize bots ▸';
+  $('#customizeBtn').setAttribute('aria-expanded', customizeOpen);
+  if (customizeOpen) {
+    const lane = role => d.slots.map((x, i) => ({ x, i })).filter(o => o.x.role === role).map(({ x, i }) => {
+      const h = x.humanId && lobbyPlayer(x.humanId);
+      return `<button class="slot ${x.humanId === myId ? 'mine' : ''} ${h ? 'human' : ''} ${i === selSlot ? 'sel' : ''}" data-idx="${i}" ${h && x.humanId !== myId ? 'disabled' : ''}>
+        <span class="s-cls">${G.CLASSES[x.cls].name}</span><span class="s-who">${x.humanId === myId ? 'You' : h ? esc(h.name) : 'Bot'}</span></button>`;
+    }).join('');
+    $('#pitch').innerHTML = `<div class="king-spot"><span>👑</span>King</div>
+      <div class="lane"><div class="lane-title">Defense</div>${lane('D')}</div>
+      <div class="lane"><div class="lane-title">Midfield</div>${lane('M')}</div>
+      <div class="lane"><div class="lane-title">Attack →</div>${lane('A')}</div>`;
+  }
 }
 
-$('#formSeg').addEventListener('click', e => { const b = e.target.closest('[data-f]'); if (b) socket.emit('draftFormation', b.dataset.f.split('-').map(Number)); });
-$('#pitch').addEventListener('click', e => { const b = e.target.closest('[data-idx]'); if (b) { selSlot = +b.dataset.idx; renderDraft(); } });
+$('#planSeg').addEventListener('click', e => { const b = e.target.closest('[data-plan]'); if (b) socket.emit('draftFormation', b.dataset.plan.split('-').map(Number)); });
+$('#roleSeg').addEventListener('click', e => { const b = e.target.closest('[data-role]'); if (b && !b.disabled) socket.emit('draftRole', b.dataset.role); });
+$('#customizeBtn').onclick = () => { customizeOpen = !customizeOpen; renderDraft(); };
+$('#classLabel').addEventListener('click', e => { if (e.target.id === 'backToMe') { selSlot = null; customizeOpen = true; const d = myDraft(); selSlot = d.slots.findIndex(sl => sl.humanId === myId); renderDraft(); } });
+$('#pitch').addEventListener('click', e => { const b = e.target.closest('[data-idx]'); if (b && !b.disabled) { selSlot = +b.dataset.idx; renderDraft(); } });
 $('#draftReadyBtn').onclick = () => socket.emit('draftReady', !(lobby.draftReady || []).includes(myId));
-$('#takeSlotBtn').onclick = () => { if (selSlot != null) socket.emit('draftTake', selSlot); };
 $('#draftClasses').addEventListener('click', e => { const b = e.target.closest('[data-cls]'); if (b && !b.disabled && selSlot != null) socket.emit('draftClass', { idx: selSlot, cls: b.dataset.cls }); });
 let myVote = null;
 $('#crowdSpots').addEventListener('click', e => { const b = e.target.closest('[data-spot]'); if (b) { myVote = +b.dataset.spot; socket.emit('crowdVote', myVote); } });

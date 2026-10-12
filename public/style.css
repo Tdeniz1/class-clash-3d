@@ -550,3 +550,79 @@ body.touch .squad-hint { display: none; }
 .hit-marker.kill i { background: #ff3b30; height: 15px; box-shadow: 0 0 6px rgba(255,59,48,0.9); }
 .hit-marker.kill.show { animation: hitmark .5s ease-out; }
 @keyframes hitmark { 0% { opacity: 1; transform: scale(1.5); } 40% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.1); } }
+
+/* ---------- v11: simpler draft and class cards ---------- */
+.class-card .cstat { font-size: 13px; color: var(--sand-2); }
+.draft-row { display: flex; flex-direction: column; gap: 6px; }
+.draft-label { font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--bronze-2); font-weight: 700; }
+.draft-label b { color: var(--sand); }
+.choice-seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.choice-seg button { font: 700 16px 'Rubik', sans-serif; padding: 10px 8px; border-radius: 10px; border: 2px solid var(--line); background: var(--ink-2); color: var(--sand); cursor: pointer; min-height: 54px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.choice-seg button small { font-size: 11px; font-weight: 500; color: var(--muted); }
+.choice-seg button.on { background: var(--bronze-2); color: var(--ink); border-color: transparent; }
+.choice-seg button.on small { color: #3b2a16; }
+.choice-seg button:disabled { opacity: 0.4; cursor: not-allowed; }
+.draft-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.link-btn { background: none; border: 0; color: var(--bronze-2); font: 700 14px 'Rubik', sans-serif; cursor: pointer; padding: 4px 0; text-decoration: underline; text-underline-offset: 3px; }
+.customize { display: flex; flex-direction: column; gap: 6px; }
+.customize p { margin: 0; }
+.slot:disabled { opacity: 0.6; cursor: not-allowed; }
+@media (max-height: 520px), (max-width: 600px) {
+  .draft-row { gap: 3px; }
+  .draft-label { font-size: 10px; }
+  .choice-seg { gap: 5px; }
+  .choice-seg button { font-size: 13px; min-height: 40px; padding: 4px; }
+  .choice-seg button small { font-size: 9.5px; }
+  .draft-foot { gap: 8px; }
+  .link-btn { font-size: 12px; }
+  .class-card .cstat { font-size: 10.5px; }
+  .class-card .spec { font-size: 10.5px; }
+}
+
+/* ---------- v12: phone polish ---------- */
+/* keep screens clear of the settings button */
+@media (max-height: 520px), (max-width: 600px) {
+  #draft.screen { padding-right: max(56px, env(safe-area-inset-right)); }
+  .lobby-head .eyebrow { display: none; }
+  .lobby-head { padding: 6px 10px; }
+  .room-code { font-size: 22px; letter-spacing: 4px; }
+  .mode-info { font-size: 11.5px; margin-top: 6px; }
+  .ios-tip { font-size: 11px; padding: 3px 8px; }
+  .lobby-grid { grid-template-columns: minmax(170px, 0.8fr) 2fr; }
+  .center-msg, .order-toast { font-size: clamp(26px, 7vw, 52px); }
+  .you-died { font-size: clamp(34px, 9vw, 64px); }
+  .death-title { font-size: 18px; }
+  .death-timer { font-size: 14px; } .death-timer b { font-size: 20px; }
+}
+/* phones in a match: emote + squad buttons tucked under the settings gear, out of the action */
+body.touch .tbtn-emote, body.touch .tbtn-order { width: 42px; height: 42px; font-size: 20px; bottom: auto; right: calc(8px + env(safe-area-inset-right)); }
+body.touch .tbtn-emote { top: 54px; }
+body.touch .tbtn-order { top: 102px; }
+body.touch .emote-wheel { bottom: auto; top: 50px; right: calc(56px + env(safe-area-inset-right)); }
+body.touch .order-wheel { bottom: auto; top: 98px; right: calc(56px + env(safe-area-inset-right)); }
+body.touch .feed { font-size: 11px; max-width: 46vw; right: calc(56px + env(safe-area-inset-right)); }
+body.touch .feed li:nth-child(n+3) { display: none; }
+body.touch .kb { font-size: 10px; }
+body.touch .kbar { width: 72px; height: 9px; }
+body.touch .frenzy-tag { font-size: 10px; padding: 1px 6px; }
+body.touch .score-list { font-size: 10px; padding: 5px 7px; min-width: 104px; }
+body.touch .order-bar { font-size: 11px; top: 74px; }
+/* short phones (iPhone SE size): smaller controls */
+@media (max-height: 400px) and (pointer: coarse) {
+  #joyBase { width: 96px; height: 96px; left: 40px; bottom: 30px; }
+  #joyKnob { width: 44px; height: 44px; margin: -22px; }
+  .tbtn-atk { width: 70px; height: 70px; font-size: 28px; right: calc(18px + env(safe-area-inset-right)); bottom: calc(16px + env(safe-area-inset-bottom)); }
+  .tbtn-abl { width: 56px; height: 56px; font-size: 22px; right: calc(26px + env(safe-area-inset-right)); bottom: calc(96px + env(safe-area-inset-bottom)); }
+  .tbtn-jump { width: 50px; height: 50px; font-size: 22px; right: calc(98px + env(safe-area-inset-right)); bottom: calc(12px + env(safe-area-inset-bottom)); }
+  .tbtn-name { font-size: 8px; }
+  body.touch .me-box { width: min(240px, 38vw); bottom: 4px; }
+  .me-line { font-size: 10px; margin-bottom: 2px; }
+  .hp-bar { height: 14px; } #hpText { font-size: 10px; line-height: 14px; }
+  .timer { font-size: 20px; }
+  .king-bars { top: 30px; }
+  body.touch .order-bar { top: 52px; }
+  .zone-info { font-size: 10px; }
+}
+/* phones: the feed sits under the button column on the right, away from the King bars */
+body.touch .feed { top: 150px; right: calc(8px + env(safe-area-inset-right)); font-size: 10px; max-width: 40vw; }
+@media (max-height: 340px) { .ios-tip { display: none !important; } }
