@@ -65,7 +65,11 @@ const touchState = { mx: 0, mz: 0, atk: false, jump: false };
 // ---------- three.js setup ----------
 const canvas = $('#game');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: !isTouch, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio, isTouch ? 1.5 : 2));
+// settings that change how the scene is built/drawn
+let lowPower = store.get('cc_low', false);  // pixel ratio 1, no shadows/crowd/clouds, 30 fps cap
+let cbMode = store.get('cc_cb', false);     // colorblind: team symbols + shirt patterns (not just color)
+const pixelRatio = () => (lowPower ? 1 : Math.min(devicePixelRatio, isTouch ? 1.5 : 2));
+renderer.setPixelRatio(pixelRatio());
 renderer.shadowMap.enabled = !isTouch;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
@@ -537,7 +541,17 @@ function setMap(key, layout) {
   setNextZone(null);
   Object.assign(sun.shadow.camera, { left: -m.halfX - 6, right: m.halfX + 6, top: m.halfZ + 7, bottom: -m.halfZ - 7 });
   sun.shadow.camera.updateProjectionMatrix();
+  applyPower();
 }
+function applyPower() {
+  renderer.setPixelRatio(pixelRatio());
+  sun.castShadow = !lowPower;
+  if (crowd) crowd.mesh.visible = !lowPower;
+  for (const c of clouds) c.visible = !lowPower;
+}
+// colorblind mode: a symbol next to every team name, and a shirt pattern per team
+const TEAM_SYM = { red: '▲', blue: '●', green: '■', gold: '◆' };
+const sym = t => (cbMode && t && TEAM_SYM[t] ? TEAM_SYM[t] + ' ' : '');
 
 // ---------- characters ----------
 const BODY_W = { king: 1.3, tank: 1.35, archer: 0.8, mage: 0.95, gladiator: 1.05, rogue: 0.82, paladin: 1.2, bomber: 1.1, lancer: 0.95 };
@@ -608,6 +622,12 @@ function buildWeapon(cls, s) {
 
 // team = true in team modes: the torso wears the team color (plus a back flag) so sides read at a glance;
 // the class color moves to a belt and shoulder stripe
+// shirt patterns for colorblind mode, keyed by team color: red = white stripes, green = white band, gold = black stripes
+const CB_PATTERN = {
+  [G.TEAM_COLORS.red]: (ex, s, bw) => { for (const x of [-0.2, 0, 0.2]) ex.push(box(0.07 * bw, 0.8 * s, 0.47 * s, lam(0xffffff), x * bw, 0.95 * s, 0)); },
+  [G.TEAM_COLORS.green]: (ex, s, bw) => { ex.push(box(0.77 * bw, 0.16 * s, 0.47 * s, lam(0xffffff), 0, 1.0 * s, 0)); },
+  [G.TEAM_COLORS.gold]: (ex, s, bw) => { for (const x of [-0.2, 0, 0.2]) ex.push(box(0.07 * bw, 0.8 * s, 0.47 * s, lam(0x111111), x * bw, 0.95 * s, 0)); },
+};
 function makeCharacter(cls, ringColor, team = false) {
   const c = G.CLASSES[cls] || G.CLASSES.gladiator;
   const s = c.size, bw = (BODY_W[cls] || 1) * s;
@@ -685,6 +705,8 @@ function makeCharacter(cls, ringColor, team = false) {
       extras.push(box(0.1 * s, 0.4 * s, 0.1 * s, lam(0x2a9d8f), 0, 2.1 * s, 0.1));
       break;
   }
+  const pattern = team && cbMode ? CB_PATTERN[ringColor] : null;
+  if (pattern) pattern(extras, s, bw);
   if (team && cls !== 'king') {
     extras.push(box(0.79 * bw, 0.13 * s, 0.49 * s, mat, 0, 0.7 * s, 0)); // class-colored belt
     extras.push(box(0.79 * bw, 0.1 * s, 0.49 * s, mat, 0, 1.24 * s, 0)); // and shoulder stripe
@@ -728,7 +750,7 @@ function ensureChar(id, snapCls) {
   const cls = snapCls || (lp ? lp.cls : 'gladiator');
   const rc = ringColorFor(lp);
   const team = isTeamMode();
-  const key = cls + ':' + rc + ':' + team;
+  const key = cls + ':' + rc + ':' + team + ':' + cbMode;
   let ch = chars.get(id);
   if (ch && ch.key === key) return ch;
   if (ch) scene.remove(ch.model.group);
@@ -744,7 +766,7 @@ function ensureChar(id, snapCls) {
   }
   ch.key = key; ch.model = model;
   const n = ch.tag.querySelector('.n');
-  n.textContent = lp ? lp.name : '?';
+  n.textContent = lp ? (team ? sym(lp.team) : '') + lp.name : '?';
   ch.tag.querySelector('.botlbl').style.display = lp && lp.isBot && !lp.isKing ? '' : 'none';
   n.style.color = hex(rc);
   return ch;
@@ -991,7 +1013,7 @@ if (urlRoom) {
   codeInput.value = urlRoom.toUpperCase().slice(0, 4);
   $('#joinBtn').textContent = 'Join room ' + codeInput.value;
   $('#joinBtn').classList.add('btn-primary');
-  $('#createBtn').classList.remove('btn-primary');
+  $('#playNowBtn').classList.remove('btn-primary');
   $('#createBtn').textContent = 'Create a new room instead';
   setTimeout(() => nameInput.focus(), 50);
 }
@@ -1020,6 +1042,17 @@ function enteredRoom(res) {
   homeError('');
   unlockAudio();
 }
+// Play Now: straight into Kill the King vs bots (no name needed)
+$('#playNowBtn').onclick = () => {
+  goFullscreen();
+  myName = nameInput.value.trim().slice(0, 12) || 'Player';
+  if (nameInput.value.trim()) store.set('cc_name', myName);
+  socket.emit('quickPlay', { name: myName }, enteredRoom);
+};
+$('#howBtn').onclick = () => $('#howModal').classList.remove('hidden');
+$('#howClose').onclick = () => $('#howModal').classList.add('hidden');
+$('#howX').onclick = () => $('#howModal').classList.add('hidden');
+$('#howModal').onclick = e => { if (e.target.id === 'howModal') $('#howModal').classList.add('hidden'); };
 $('#createBtn').onclick = () => {
   goFullscreen();
   const n = readName(); if (!n) return;
@@ -1037,8 +1070,12 @@ codeInput.addEventListener('keydown', e => { if (e.key === 'Enter') doJoin(); })
 nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') (codeInput.value.trim().length === 4 ? doJoin() : $('#createBtn').click()); });
 function unlockAudio() { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); startMusic(); } catch {} }
 
+// dropped connection: show it, and wake the socket when the phone comes back from the background
+socket.on('disconnect', () => { if (myId) $('#reconnect').classList.remove('hidden'); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && !socket.connected) socket.connect(); });
 // auto-rejoin after a refresh, and after a dropped connection
 socket.on('connect', () => {
+  $('#reconnect').classList.add('hidden');
   const s = session.get();
   if (s && (myId || (urlRoom && urlRoom.toUpperCase() === s.code))) {
     myName = s.name;
@@ -1183,10 +1220,47 @@ function renderResults() {
     <div class="ic">${a.icon}</div><div class="tt">${a.title}</div>
     <div class="nm" style="color:${hex(R.mode === 'ffa' ? 0xf3e2bf : G.TEAM_COLORS[a.team])}">${esc(a.name)}${a.id === myId ? ' (you)' : ''}</div>
     <div class="st">${G.CLASSES[a.cls].name} · ${a.value} ${a.unit}</div></div>`).join('');
+  $('#shareBtn').textContent = '📸 Share result';
   const host = lobby.hostId === myId;
   $('#againBtn').classList.toggle('hidden', !host);
   $('#againHint').textContent = host ? '' : 'Waiting for the host to start another round…';
 }
+
+// ---------- shareable result card (1200×630 PNG) ----------
+function makeResultCard() {
+  const R = lobby.results, mine = R.players.find(p => p.id === myId) || {};
+  const W = 1200, H = 630, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const x = cv.getContext('2d');
+  const bg = x.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#2b1d12'); bg.addColorStop(1, '#100a06');
+  x.fillStyle = bg; x.fillRect(0, 0, W, H);
+  const draw = R.winner === 'draw', won = !draw && (R.mode === 'ffa' ? R.winner === myId : R.winner === mine.team);
+  const accent = R.mode === 'ffa' || !mine.team ? '#e9c46a' : hex(G.TEAM_COLORS[mine.team]);
+  x.fillStyle = accent; x.fillRect(0, 0, W, 16); x.fillRect(0, H - 16, W, 16);
+  x.textAlign = 'center';
+  x.fillStyle = '#e7cf9c'; x.font = '700 36px Cinzel, serif'; x.fillText('CLASS CLASH 3D', W / 2, 84);
+  x.fillStyle = draw ? '#f3e2bf' : won ? '#ffd23f' : '#ff8a80'; x.font = '900 120px Cinzel, serif';
+  x.shadowColor = 'rgba(0,0,0,0.6)'; x.shadowOffsetY = 6; x.fillText(draw ? 'DRAW' : won ? 'VICTORY' : 'DEFEAT', W / 2, 220); x.shadowColor = 'transparent';
+  x.fillStyle = '#f3e2bf'; x.font = '700 38px system-ui, sans-serif'; x.fillText($('#winnerText').textContent, W / 2, 285);
+  if (R.mode === 'ktk' && R.kingHp) { x.font = '600 28px system-ui, sans-serif'; x.fillStyle = '#e7cf9c'; x.fillText(`👑 Red King ${R.kingHp.red} HP   ·   👑 Blue King ${R.kingHp.blue} HP`, W / 2, 330); }
+  x.fillStyle = 'rgba(255,255,255,0.06)'; x.fillRect(150, 370, W - 300, 150);
+  x.fillStyle = accent; x.font = '800 44px system-ui, sans-serif'; x.fillText(`${mine.name || myName} · ${G.CLASSES[mine.cls] ? G.CLASSES[mine.cls].name : ''}`, W / 2, 428);
+  x.fillStyle = '#f3e2bf'; x.font = '600 32px system-ui, sans-serif'; x.fillText(`${mine.kos || 0} knockouts   ·   ${mine.dmg || 0} damage`, W / 2, 478);
+  const aw = (R.awards || []).filter(a => a.id === myId).map(a => `${a.icon} ${a.title}`).join('   ');
+  if (aw) { x.font = '800 32px system-ui, sans-serif'; x.fillStyle = '#ffd23f'; x.fillText(aw, W / 2, 508); }
+  x.fillStyle = '#b8a27a'; x.font = '600 26px system-ui, sans-serif'; x.fillText('Play free in your browser: ' + location.host, W / 2, 580);
+  return new Promise(res => cv.toBlob(res, 'image/png'));
+}
+$('#shareBtn').onclick = async () => {
+  const blob = await makeResultCard(); if (!blob) return;
+  const file = new File([blob], 'class-clash-result.png', { type: 'image/png' });
+  const text = `${$('#winnerText').textContent} — Class Clash 3D`;
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], text, url: location.origin }); return; }
+  } catch (err) { if (err.name === 'AbortError') return; }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  $('#shareBtn').textContent = '✓ Saved image';
+};
 
 function showScreen(name) {
   for (const id of ['home', 'lobby', 'results', 'draft']) $('#' + id).classList.toggle('hidden', id !== name);
@@ -1235,6 +1309,7 @@ function resetMatchState() {
   kingWarned = { half: false, quarter: false }; kingAlertUntil = 0; killerId = null; killText = '';
   $('#emoteWheel').classList.add('hidden'); $('#orderWheel').classList.add('hidden');
   focusMarker.visible = false; enemyArrow.visible = false;
+  tipQueue = []; tipCurrent = null; $('#tipBox').classList.add('hidden');
   $('#hud').classList.remove('finale');
   document.body.classList.remove('finale');
   $('#feed').innerHTML = '';
@@ -1329,6 +1404,11 @@ $('#gearBtn').onclick = () => { $('#settings').classList.toggle('hidden'); if (d
 $('#closeSettings').onclick = () => $('#settings').classList.add('hidden');
 $('#sensInput').oninput = e => { sens = +e.target.value; store.set('cc_sens', sens); };
 $('#muteInput').onchange = e => { muted = e.target.checked; store.set('cc_mute', muted); };
+$('#cbInput').checked = cbMode;
+$('#cbInput').onchange = e => { cbMode = e.target.checked; store.set('cc_cb', cbMode); };
+$('#lowInput').checked = lowPower;
+$('#lowInput').onchange = e => { lowPower = e.target.checked; store.set('cc_low', lowPower); applyPower(); resize(); };
+$('#tipsResetBtn').onclick = () => { seenTips.clear(); store.set('cc_tips', []); $('#tipsResetBtn').textContent = 'Tips will show again ✓'; };
 $('#musicInput').checked = musicOn;
 $('#musicInput').onchange = e => { musicOn = e.target.checked; store.set('cc_music', musicOn); unlockAudio(); };
 $('#leaveBtn').onclick = () => {
@@ -1373,7 +1453,7 @@ function showGoal(lp, ms) {
   $('#goalTitle').textContent = mode === 'ktk' ? 'Kill the Enemy King' : 'Capture the Circle';
   $('#goalTeam').innerHTML = mode === 'ffa'
     ? 'Stand in the glowing circle to score · knockouts +3'
-    : `You are team ${teamWord(lp.team)}`;
+    : `You are team ${sym(lp.team)}${teamWord(lp.team)}`;
   const gb = $('#goalBanner');
   gb.style.setProperty('--team', mode === 'ffa' ? '#f3e2bf' : hex(G.TEAM_COLORS[lp.team]));
   gb.classList.remove('hidden'); gb.classList.remove('out'); void gb.offsetWidth;
@@ -1389,6 +1469,42 @@ const enemyArrow = new THREE.Group();
   enemyArrow.traverse(o => { o.renderOrder = 999; });
 }
 enemyArrow.visible = false; scene.add(enemyArrow);
+
+// ---------- first-match tips: each shows once per device, one at a time ----------
+const seenTips = new Set(store.get('cc_tips', []));
+let tipQueue = [], tipCurrent = null, tipUntil = 0, slowSince = 0, fpsAvg = 60;
+function tip(id, html, ms = 5500) {
+  if (seenTips.has(id) || tipCurrent === id || tipQueue.some(t => t.id === id)) return;
+  tipQueue.push({ id, html, ms });
+}
+function updateTips(now) {
+  if (tipCurrent) {
+    if (now < tipUntil) return;
+    $('#tipBox').classList.add('hidden'); tipCurrent = null; tipUntil = now + 900; // short gap between tips
+    return;
+  }
+  if (now < tipUntil || !tipQueue.length) return;
+  const t = tipQueue.shift();
+  tipCurrent = t.id; seenTips.add(t.id); store.set('cc_tips', [...seenTips]);
+  $('#tipBox').innerHTML = '💡 ' + t.html;
+  $('#tipBox').classList.remove('hidden');
+  tipUntil = now + t.ms;
+}
+function matchTips(now, s, me, lp, c, ktk) {
+  // a slow device gets pointed at Low-power mode
+  fpsAvg += (1000 / Math.max(1, now - (matchTips.last || now - 16)) - fpsAvg) * 0.05; matchTips.last = now;
+  if (!lowPower && fpsAvg < 26) { if (!slowSince) slowSince = now; else if (now - slowSince > 6000) tip('lowpower', 'Game running slow? Turn on <b>Low-power mode</b> in ⚙ settings.', 7000); } else slowSince = 0;
+  if (s.phase !== 'playing' || now < goalUntil || me.dead || s.fin) return;
+  tip('move', isTouch ? 'Left thumb moves you · drag the right side of the screen to look around' : '<kbd>WASD</kbd> to move · move the mouse to look (click the game first)');
+  tip('attack', isTouch ? 'Tap <b>⚔</b> to attack. A white ✕ on your crosshair means you hit.' : '<kbd>Click</kbd> to attack. A white ✕ on your crosshair means you hit.');
+  if (me.bCd <= 0) tip('special', `Your special is ready: <b>${c.ability.name}</b> — ${isTouch ? 'tap <b>✦</b>' : 'press <kbd>E</kbd>'}`);
+  if (ktk && s.kg && pred) {
+    const near = t => { const k = s.kg[t] && chars.get(s.kg[t].id); return k ? Math.hypot(k.model.group.position.x - pred.x, k.model.group.position.z - pred.z) : 99; };
+    if (near(lp.team) < G.KING_AURA.SPEED_R) tip('aura', 'Near your King you heal and run faster. With 2+ teammates close to him, he takes far less damage.', 6500);
+    if (near(lp.team === 'red' ? 'blue' : 'red') < 16) tip('guard', 'Enemy King ahead! A 🛡 next to his health bar means guards protect him — pull them away first.', 6500);
+    if (now > goalUntil + 40000) tip('orders', isTouch ? 'Tap <b>📣</b> to give your bots orders: attack, defend, follow me.' : 'Give your bots orders: <kbd>Z</kbd> attack · <kbd>X</kbd> defend · <kbd>C</kbd> follow me · <kbd>V</kbd> focus', 6500);
+  } else if (!ktk) tip('circle', 'Stand inside the glowing circle to score. Knockouts are worth 3.');
+}
 const EMOTE_KEYS = { Digit1: 'wave', Digit2: 'cheer', Digit3: 'taunt', Digit4: 'dance' };
 addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT' || !inMatchNow() || !EMOTE_KEYS[e.code]) return;
@@ -1591,6 +1707,12 @@ function nameTag(id) {
 function handleEvent(e) {
   const ch = e.id && chars.get(e.id);
   switch (e.t) {
+    case 'dc':
+      if (e.id !== myId) feed(`📶 ${nameTag(e.id)} lost connection — a bot is covering`);
+      break;
+    case 'back':
+      if (e.id !== myId) feed(`📶 ${nameTag(e.id)} is back`);
+      break;
     case 'hit':
       if (ch) ch.flashT = 0.12;
       if (lobby.mode === 'ktk' && lastSnap && lastSnap.kg) {
@@ -2026,6 +2148,7 @@ resize();
 
 function frame() {
   requestAnimationFrame(frame);
+  if (lowPower && performance.now() - lastFrame < 31) return; // ~30 fps cap
   const now = performance.now();
   const realDt = Math.min(0.1, (now - lastFrame) / 1000);
   lastFrame = now;
@@ -2236,6 +2359,8 @@ function updateHud(now) {
     enemyArrow.rotation.y += 0.03;
     placeArrow($('#enemyKingArrow'), kp.x, kp.z);
   } else $('#enemyKingArrow').style.display = 'none';
+  matchTips(now, s, me, lp, c, ktk);
+  updateTips(now);
   const z = curMap.zones[s.zone.i];
   $('#zoneInfo').textContent = ktk
     ? (s.ot ? '⚡ OVERTIME' : s.fz ? '🔥 FINAL FRENZY — double damage' : 'Kill the enemy King · protect yours')

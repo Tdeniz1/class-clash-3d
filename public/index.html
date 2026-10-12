@@ -33,12 +33,13 @@
   <section id="home" class="screen">
     <div class="panel home-panel">
       <h1 class="logo">Class Clash <span>3D</span></h1>
-      <p class="tagline">Pick a class. Stand in the glowing zone to score. Knock everyone else out of it. Highest score after 3 minutes wins.</p>
+      <p class="tagline">Protect your King. Kill theirs. 8v8 team battles right in your browser, on a phone or a laptop.</p>
       <label class="field">
         <span>Your name</span>
         <input id="nameInput" maxlength="12" autocomplete="nickname" placeholder="e.g. Deniz">
       </label>
-      <button id="createBtn" class="btn btn-primary">Create room</button>
+      <button id="playNowBtn" class="btn btn-primary btn-play">▶ Play Now<small>Kill the King vs bots · starts instantly</small></button>
+      <button id="createBtn" class="btn">Create a room for friends</button>
       <div class="divider"><span>or join a friend</span></div>
       <div class="join-row">
         <label class="field grow">
@@ -48,8 +49,26 @@
         <button id="joinBtn" class="btn">Join</button>
       </div>
       <p id="homeError" class="error" role="alert"></p>
+      <button id="howBtn" class="link-btn how-btn">❓ How a match works</button>
     </div>
   </section>
+
+  <!-- HOW A MATCH WORKS -->
+  <div id="howModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="howTitle">
+    <div class="panel modal-panel">
+      <div class="modal-head"><h2 id="howTitle">How a match works</h2><button id="howX" class="modal-x" aria-label="Close">✕</button></div>
+      <ol class="how-steps">
+        <li><span aria-hidden="true">🛡</span><div><b>Draft (30 s).</b> Pick a game plan, your position and a class. Bots fill every other spot.</div></li>
+        <li><span aria-hidden="true">👑</span><div><b>Kill the enemy King, protect yours.</b> Near your King you heal and run faster. With 2+ guards close, he takes far less damage.</div></li>
+        <li><span aria-hidden="true">💀</span><div><b>Knocked out?</b> You're back in 10 s, and you can switch class while you wait.</div></li>
+        <li><span aria-hidden="true">🔥</span><div><b>Last 30 s: Final Frenzy.</b> Double damage, fast respawns. No King down after 5 minutes? The healthier King wins, and a near-tie goes to Overtime.</div></li>
+      </ol>
+      <p class="muted small">Also try Free-for-all and Teams: score by holding the glowing circle.</p>
+      <button id="howClose" class="btn btn-primary">Got it</button>
+    </div>
+  </div>
+
+  <div id="reconnect" class="reconnect hidden" role="status"><div class="spin" aria-hidden="true"></div><div><b>Reconnecting…</b><small>A bot is playing for you until you're back.</small></div></div>
 
   <!-- LOBBY -->
   <section id="lobby" class="screen hidden">
@@ -156,7 +175,7 @@
         <h2 id="winnerText" class="winner"></h2>
         <div id="teamResult" class="team-result"></div>
         <div id="mvpCards" class="mvp-cards"></div>
-        <button id="againBtn" class="btn btn-primary">Play again</button>
+        <div class="res-btns"><button id="againBtn" class="btn btn-primary">Play again</button><button id="shareBtn" class="btn">📸 Share result</button></div>
         <p id="againHint" class="muted small"></p>
       </div>
       <div class="res-right">
@@ -185,6 +204,7 @@
     <ol id="scoreList" class="score-list"></ol>
     <ul id="feed" class="feed"></ul>
     <div id="centerMsg" class="center-msg"></div>
+    <div id="tipBox" class="tip-box hidden" role="status"></div>
     <div id="goalBanner" class="goal-banner hidden" role="status"><div id="goalTitle" class="goal-title"></div><div id="goalTeam" class="goal-team"></div></div>
     <div id="youDied" class="you-died hidden">YOU DIED</div>
     <div id="killCam" class="killcam hidden"></div>
@@ -262,6 +282,9 @@
     <label>Look sensitivity <input id="sensInput" type="range" min="0.3" max="2.5" step="0.1" value="1"></label>
     <label class="check"><input id="musicInput" type="checkbox"> Background music</label>
     <label class="check"><input id="muteInput" type="checkbox"> Mute sounds</label>
+    <label class="check"><input id="cbInput" type="checkbox"> Colorblind mode <small>(team symbols + shirt patterns)</small></label>
+    <label class="check"><input id="lowInput" type="checkbox"> Low-power mode <small>(smoother on older phones)</small></label>
+    <button id="tipsResetBtn" class="btn btn-small">Show tips again</button>
     <button id="leaveBtn" class="btn btn-small">Leave room</button>
     <button id="closeSettings" class="btn btn-small">Close</button>
   </div>

@@ -25,7 +25,7 @@ const io = new Server(server);
 const rooms = new Map();
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // no I or O
 const BOT_NAMES = ['Brutus', 'Nyx', 'Vex', 'Ajax', 'Rook', 'Zara', 'Kato', 'Juno', 'Pike', 'Mira', 'Orin', 'Sable'];
-const DC_GRACE_MS = 30000;
+const DC_GRACE_MS = 90000; // a dropped player keeps their spot this long (a bot plays for them meanwhile)
 const EMPTY_ROOM_MS = 5 * 60 * 1000;
 let nextId = 1;
 
@@ -51,9 +51,12 @@ function newPlayer(name, opts = {}) {
     lungeT: 0, lungeHit: false, atkCd: 0, ablCd: 0, lastHurt: -99,
     aim: null, powT: 0, spdT: 0, pity: 0, dryDeaths: 0, dmgDone: 0, kingDmg: 0, guardDmg: 0, nextCls: null, auraT: 0,
     inputs: [], lastSeq: 0, lastInputAt: 0,
-    bot: opts.isBot ? { strafeAng: Math.random() * 6.28, strafeT: 0, lastX: 0, lastZ: 0, checkT: 0, unstickT: 0, ux: 0, uz: 0,
-      targetId: null, seenT: 0, aimErr: 0, aimGoal: 0, aimT: 0, swingAt: null } : null,
+    bot: opts.isBot ? freshBotBrain() : null,
   };
+}
+function freshBotBrain() {
+  return { strafeAng: Math.random() * 6.28, strafeT: 0, lastX: 0, lastZ: 0, checkT: 0, unstickT: 0, ux: 0, uz: 0,
+    targetId: null, seenT: 0, aimErr: 0, aimGoal: 0, aimT: 0, swingAt: null };
 }
 
 function humans(room) { return [...room.players.values()].filter(p => !p.isBot); }
@@ -988,7 +991,8 @@ function tickRoom(room) {
       p.respawnT -= dt;
       if (p.respawnT <= 0) { spawn(room, p, false); ev(room, { t: 'spawn', id: p.id }); }
     }
-    if (p.isBot) {
+    if (p.isBot || (!p.connected && p.bot)) {
+      // bots, and humans whose connection dropped (the AI keeps them alive until they're back)
       applyInput(room, p, botThink(room, p), frozen, dt);
     } else {
       // speed-hack guard: at most 4 inputs per tick, drop a backlog
@@ -1272,8 +1276,7 @@ io.on('connection', socket => {
     r.emptySince = null;
   }
 
-  socket.on('create', ({ name } = {}, cb) => {
-    if (room) return;
+  function newRoom(name) {
     const code = makeCode();
     const r = {
       code, hostId: null, players: new Map(), mode: 'ktk', botLevel: 'normal', phase: 'lobby', results: null,
@@ -1288,7 +1291,31 @@ io.on('connection', socket => {
     r.hostId = p.id;
     assignColor(r, p);
     enter(r, p);
-    cb && cb({ ok: true, code, you: p.id });
+    return { r, p };
+  }
+
+  socket.on('create', ({ name } = {}, cb) => {
+    if (room) return;
+    const { r, p } = newRoom(name);
+    cb && cb({ ok: true, code: r.code, you: p.id });
+    broadcastLobby(r);
+  });
+
+  // Play Now: a private Kill the King match against bots, straight into the countdown
+  // (Midfield Gladiator on Red, balanced line-up, easy bots that the comeback system can scale up)
+  socket.on('quickPlay', ({ name } = {}, cb) => {
+    if (room) return;
+    const { r, p } = newRoom(name);
+    r.botLevel = 'easy'; r.quick = true; p.ready = true;
+    cb && cb({ ok: true, code: r.code, you: p.id });
+    startMatch(r);
+    if (r.phase === 'draft') {
+      const d = r.draft.red;
+      for (const sl of d.slots) if (sl.humanId === p.id) sl.humanId = null;
+      const mid = d.slots.find(sl => sl.role === 'M') || d.slots[0];
+      mid.humanId = p.id; mid.cls = 'gladiator'; p.cls = 'gladiator';
+      finalizeDraft(r);
+    }
     broadcastLobby(r);
   });
 
@@ -1301,6 +1328,7 @@ io.on('connection', socket => {
     let p = [...r.players.values()].find(q => !q.isBot && !q.connected && q.name === n);
     if (p) {
       p.connected = true; p.socketId = socket.id; p.inputs = [];
+      ev(r, { t: 'back', id: p.id });
     } else {
       if (seatCount(r) >= G.MAX_PLAYERS) {
         const bot = [...r.players.values()].find(q => q.isBot);
@@ -1506,8 +1534,9 @@ io.on('connection', socket => {
 
   socket.on('disconnect', () => {
     if (!room || !me) return;
-    if (room.phase === 'lobby' || room.phase === 'ended') return removePlayer(room, me);
+    // keep the spot for DC_GRACE_MS so a phone that locks or drops signal can come back
     me.connected = false; me.dcAt = Date.now(); me.inputs = [];
+    if (me.inMatch) { me.bot = me.bot || freshBotBrain(); ev(room, { t: 'dc', id: me.id }); }
     if (room.hostId === me.id) pickNewHost(room);
     broadcastLobby(room);
   });
