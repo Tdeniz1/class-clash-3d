@@ -101,7 +101,7 @@
       </div>
 
       <footer class="lobby-foot">
-        <p class="rules"><strong>How to play:</strong> WASD / joystick to move · mouse / drag to look · click / ⚔ to attack · E / ✦ for your special · Space / ⤒ to jump.</p>
+        <div class="rules" id="howTo"></div>
         <div class="foot-btns">
           <button id="readyBtn" class="btn">I'm ready</button>
           <button id="startBtn" class="btn btn-primary">Start match</button>
@@ -185,6 +185,7 @@
     <ol id="scoreList" class="score-list"></ol>
     <ul id="feed" class="feed"></ul>
     <div id="centerMsg" class="center-msg"></div>
+    <div id="goalBanner" class="goal-banner hidden" role="status"><div id="goalTitle" class="goal-title"></div><div id="goalTeam" class="goal-team"></div></div>
     <div id="youDied" class="you-died hidden">YOU DIED</div>
     <div id="killCam" class="killcam hidden"></div>
     <div id="kingAlert" class="king-alert hidden" role="alert"></div>
@@ -192,6 +193,7 @@
     <div id="orderToast" class="order-toast hidden"></div>
     <div id="squadHint" class="squad-hint hidden">Squad orders: <b>Z</b> ⚔ Attack · <b>X</b> 🛡 Defend · <b>C</b> 🚩 Follow · <b>V</b> 🎯 Focus · <b>B</b> ↺ Formation</div>
     <div id="kingArrow" class="zone-arrow king-arrow">♛</div>
+    <div id="enemyKingArrow" class="zone-arrow enemy-arrow">▲</div>
     <div id="emoteHint" class="emote-hint">1 👋 · 2 🎉 · 3 😤 · 4 🕺</div>
     <div id="finaleBanner" class="finale-banner hidden"><div id="finaleTitle"></div><div id="finaleSub"></div></div>
     <div id="subMsg" class="sub-msg"></div>

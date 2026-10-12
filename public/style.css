@@ -626,3 +626,35 @@ body.touch .order-bar { font-size: 11px; top: 74px; }
 /* phones: the feed sits under the button column on the right, away from the King bars */
 body.touch .feed { top: 150px; right: calc(8px + env(safe-area-inset-right)); font-size: 10px; max-width: 40vw; }
 @media (max-height: 340px) { .ios-tip { display: none !important; } }
+
+/* ---------- v13: match-start goal banner, enemy King arrow ---------- */
+.goal-banner { position: absolute; top: 15%; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); text-align: center; padding: 10px 28px 12px; background: linear-gradient(180deg, rgba(18,12,8,0.82), rgba(18,12,8,0.62)); border-top: 4px solid var(--team, #f3e2bf); border-bottom: 4px solid var(--team, #f3e2bf); border-radius: 14px; box-shadow: 0 0 28px color-mix(in srgb, var(--team, #f3e2bf) 45%, transparent); animation: goalIn .6s cubic-bezier(.2,1.6,.4,1) both; pointer-events: none; z-index: 2; transition: opacity .5s; }
+@keyframes goalIn { from { transform: translateX(-50%) scale(1.6); opacity: 0; } }
+.goal-banner.out { opacity: 0; }
+.goal-title { font-family: 'Cinzel', serif; font-weight: 900; text-transform: uppercase; font-size: clamp(26px, 5.6vw, 58px); line-height: 1.05; color: #fff3c4; text-shadow: 0 3px 0 var(--blood), 0 6px 18px rgba(0,0,0,0.7); }
+.goal-team { margin-top: 6px; font-size: clamp(16px, 2.6vw, 26px); font-weight: 800; color: var(--sand-2); text-shadow: 0 2px 6px rgba(0,0,0,0.9); }
+.goal-team b { font-size: 1.25em; letter-spacing: 1px; text-shadow: 0 0 12px currentColor, 0 2px 4px #000; }
+#hud.goal .center-msg { top: 47%; font-size: clamp(34px, 7vw, 64px); }
+#hud.goal .sub-msg { top: 63%; }
+.enemy-arrow { color: #ff2b2b; font-size: 40px; text-shadow: 0 0 12px rgba(255,40,40,0.95), 0 0 2px #000; }
+@media (max-height: 520px) {
+  .goal-banner { top: 58px; padding: 6px 18px 8px; border-width: 3px; }
+  .goal-title { font-size: clamp(22px, 5vw, 36px); }
+  .goal-team { font-size: 15px; margin-top: 3px; }
+  #hud.goal .center-msg { top: 52%; font-size: 40px; }
+  #hud.goal .sub-msg { top: 70%; font-size: 15px; }
+}
+/* King bar labels never wrap into the timer */
+.kb span { white-space: nowrap; }
+@media (max-height: 400px) and (pointer: coarse) {
+  .goal-title { font-size: clamp(19px, 4.3vw, 30px); }
+  .goal-team { font-size: 13px; }
+  .goal-banner { top: 50px; padding: 5px 14px 6px; }
+}
+
+/* lobby How to play: goal line + key chips */
+.how-goal { font-size: 15px; color: var(--sand); margin-bottom: 8px; }
+.how-goal b { color: #fff3c4; }
+.how-keys { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.how-key { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--sand-2); white-space: nowrap; }
+.how-key kbd { font-family: inherit; font-weight: 800; font-size: 12px; color: #1c140d; background: var(--sand); border-radius: 6px; padding: 2px 7px; box-shadow: 0 2px 0 rgba(0,0,0,0.45); }

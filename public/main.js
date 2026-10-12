@@ -606,14 +606,16 @@ function buildWeapon(cls, s) {
   return w;
 }
 
-function makeCharacter(cls, ringColor) {
+// team = true in team modes: the torso wears the team color (plus a back flag) so sides read at a glance;
+// the class color moves to a belt and shoulder stripe
+function makeCharacter(cls, ringColor, team = false) {
   const c = G.CLASSES[cls] || G.CLASSES.gladiator;
   const s = c.size, bw = (BODY_W[cls] || 1) * s;
   const g = new THREE.Group();
   const mat = lam(c.color), skin = lam(0xe0b48a), dark = lam(0x3b2a1c), trim = lam(0xe9c46a);
   const legL = box(0.26 * bw, 0.55 * s, 0.28 * s, dark, -0.17 * bw, 0.28 * s, 0);
   const legR = box(0.26 * bw, 0.55 * s, 0.28 * s, dark, 0.17 * bw, 0.28 * s, 0);
-  const body = box(0.75 * bw, 0.8 * s, 0.45 * s, mat, 0, 0.95 * s, 0);
+  const body = box(0.75 * bw, 0.8 * s, 0.45 * s, team ? lam(ringColor) : mat, 0, 0.95 * s, 0);
   const head = box(0.42 * s, 0.42 * s, 0.42 * s, skin, 0, 1.6 * s, 0);
   g.add(legL, legR, body, head);
   // face direction marker (front = -z)
@@ -683,6 +685,13 @@ function makeCharacter(cls, ringColor) {
       extras.push(box(0.1 * s, 0.4 * s, 0.1 * s, lam(0x2a9d8f), 0, 2.1 * s, 0.1));
       break;
   }
+  if (team && cls !== 'king') {
+    extras.push(box(0.79 * bw, 0.13 * s, 0.49 * s, mat, 0, 0.7 * s, 0)); // class-colored belt
+    extras.push(box(0.79 * bw, 0.1 * s, 0.49 * s, mat, 0, 1.24 * s, 0)); // and shoulder stripe
+    // team flag on the back, visible from across the field
+    extras.push(box(0.05, 1.3 * s, 0.05, dark, -0.28 * bw, 1.55 * s, 0.3 * s));
+    extras.push(box(0.02, 0.36 * s, 0.5 * s, lam(ringColor), -0.28 * bw, 2.0 * s, 0.56 * s));
+  }
   extras.forEach(e => { e.castShadow = true; g.add(e); });
 
   const weapon = buildWeapon(cls, s);
@@ -693,13 +702,15 @@ function makeCharacter(cls, ringColor) {
   if (cls === 'archer') { pivot.position.x = -0.45 * bw; }
   g.add(pivot);
 
-  const ring = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.78, 28), new THREE.MeshBasicMaterial({ color: ringColor, transparent: true, opacity: 0.85, side: THREE.DoubleSide }));
+  const ring = new THREE.Mesh(new THREE.RingGeometry(team ? 0.6 : 0.55, team ? 0.95 : 0.78, 28), new THREE.MeshBasicMaterial({ color: ringColor, transparent: true, opacity: team ? 1 : 0.85, side: THREE.DoubleSide }));
   ring.rotation.x = -Math.PI / 2; ring.position.y = 0.04;
   g.add(ring);
 
   const mats = [];
   g.traverse(o => { if (o.isMesh && o !== ring && o.material.isMeshLambertMaterial) { o.material = o.material.clone(); mats.push(o.material); } });
-  return { group: g, pivot, legL, legR, mats, ring, baseRotX: pivot.rotation.x };
+  // a faint glow keeps the team color bright even in shadow
+  const teamGlow = team ? new THREE.Color(ringColor).multiplyScalar(0.3).getHex() : 0;
+  return { group: g, pivot, legL, legR, mats, ring, torsoMat: body.material, teamGlow, baseRotX: pivot.rotation.x };
 }
 
 const chars = new Map(); // id -> { key, model, buf, state, tag, flashT, atkT, walk, lastPos }
@@ -716,11 +727,12 @@ function ensureChar(id, snapCls) {
   const lp = lobbyPlayer(id);
   const cls = snapCls || (lp ? lp.cls : 'gladiator');
   const rc = ringColorFor(lp);
-  const key = cls + ':' + rc;
+  const team = isTeamMode();
+  const key = cls + ':' + rc + ':' + team;
   let ch = chars.get(id);
   if (ch && ch.key === key) return ch;
   if (ch) scene.remove(ch.model.group);
-  const model = makeCharacter(cls, rc);
+  const model = makeCharacter(cls, rc, team);
   scene.add(model.group);
   if (!ch) {
     const tag = document.createElement('div');
@@ -1076,9 +1088,24 @@ $('#playerList').addEventListener('click', e => {
 
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
+// lobby "How to play": the goal for the chosen mode, then this device's controls as key chips
+const GOALS = {
+  ktk: '👑 <b>Goal:</b> kill the enemy King and keep yours alive.',
+  teams: '◎ <b>Goal:</b> hold the glowing circle with your team. Knockouts +3.',
+  ffa: '◎ <b>Goal:</b> stand in the glowing circle to score. Knockouts +3.',
+};
+function renderHowTo(mode) {
+  const ctl = isTouch
+    ? [['🕹 Left thumb', 'Move'], ['Drag right side', 'Look'], ['⚔', 'Attack'], ['✦', 'Special'], ['⤒', 'Jump']]
+    : [['W A S D', 'Move'], ['Mouse', 'Look'], ['Click', 'Attack'], ['E', 'Special'], ['Space', 'Jump'], ['1–4', 'Emotes'], ...(mode === 'ktk' ? [['Z–B', 'Squad orders']] : [])];
+  $('#howTo').innerHTML = `<div class="how-goal">${GOALS[mode] || GOALS.ffa}</div>
+    <div class="how-keys">${ctl.map(([k, a]) => `<span class="how-key"><kbd>${k}</kbd>${a}</span>`).join('')}</div>`;
+}
+
 function renderLobby() {
   const L = lobby, me = lobbyPlayer(myId), host = L.hostId === myId;
   $('#roomCode').textContent = L.code;
+  renderHowTo(L.mode);
   $('#modeSeg').querySelectorAll('button').forEach(b => { b.classList.toggle('on', b.dataset.mode === L.mode); b.disabled = !host; });
   $('#botSeg').querySelectorAll('button').forEach(b => { b.classList.toggle('on', b.dataset.lvl === (L.botLevel || 'normal')); b.disabled = !host; });
   $('#playerCount').textContent = `${L.players.length}/${G.MAX_PLAYERS}`;
@@ -1178,6 +1205,7 @@ socket.on('lobby', L => {
   lobby = L;
   if (!myId || !lobbyPlayer(myId)) return;
   const inMatch = ['countdown', 'playing', 'sudden'].includes(L.phase);
+  if (!inMatch) { goalShown = false; goalUntil = 0; enemyArrowUntil = 0; }
   setMap(L.map, L.layout);
   if (L.phase === 'draft') {
     if (prevPhase !== 'draft') { resetMatchState(); selSlot = null; customizeOpen = false; }
@@ -1206,7 +1234,7 @@ function resetMatchState() {
   $('#finaleBanner').classList.add('hidden');
   kingWarned = { half: false, quarter: false }; kingAlertUntil = 0; killerId = null; killText = '';
   $('#emoteWheel').classList.add('hidden'); $('#orderWheel').classList.add('hidden');
-  focusMarker.visible = false;
+  focusMarker.visible = false; enemyArrow.visible = false;
   $('#hud').classList.remove('finale');
   document.body.classList.remove('finale');
   $('#feed').innerHTML = '';
@@ -1222,9 +1250,6 @@ document.addEventListener('webkitfullscreenchange', () => { updateFsBtn(); resiz
 // iPhone Safari can't make a web page full screen; only a home-screen install can.
 const showIosTip = isTouch && !isStandalone && (/iPhone|iPod/.test(navigator.userAgent) || !canFullscreen) && !store.get('cc_iostip_done', false);
 $('#iosTipClose').onclick = () => { store.set('cc_iostip_done', true); $('#iosTip').classList.add('hidden'); };
-if (isTouch) {
-  document.querySelector('.rules').innerHTML = '<strong>How to play:</strong> left thumb moves · drag the right side to look · ⚔ attack · ✦ special · ⤒ jump. Stand in the glowing zone to score.';
-}
 
 // ---------- Kill the King draft: game plan, your position, your class (bots optional) ----------
 let selSlot = null, draftDeadline = 0, customizeOpen = false;
@@ -1340,6 +1365,30 @@ $('#orderWheel').addEventListener('pointerdown', e => {
 const focusMarker = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.08, 6, 20), new THREE.MeshBasicMaterial({ color: 0xff3b30 }));
 focusMarker.visible = false; scene.add(focusMarker);
 let orderToastT = 0;
+// ---------- match-start goal banner + enemy King arrow ----------
+let goalShown = false, goalUntil = 0, enemyArrowUntil = 0;
+const teamWord = t => `<b style="color:${hex(G.TEAM_COLORS[t])}">${G.TEAM_NAMES[t].toUpperCase()}</b>`;
+function showGoal(lp, ms) {
+  const mode = lobby.mode;
+  $('#goalTitle').textContent = mode === 'ktk' ? 'Kill the Enemy King' : 'Capture the Circle';
+  $('#goalTeam').innerHTML = mode === 'ffa'
+    ? 'Stand in the glowing circle to score · knockouts +3'
+    : `You are team ${teamWord(lp.team)}`;
+  const gb = $('#goalBanner');
+  gb.style.setProperty('--team', mode === 'ffa' ? '#f3e2bf' : hex(G.TEAM_COLORS[lp.team]));
+  gb.classList.remove('hidden'); gb.classList.remove('out'); void gb.offsetWidth;
+  goalUntil = performance.now() + ms;
+}
+// big red arrow that hangs over the enemy King (drawn on top of everything)
+const enemyArrow = new THREE.Group();
+{
+  const m = new THREE.MeshBasicMaterial({ color: 0xff2b2b, depthTest: false, transparent: true, opacity: 0.95 });
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.75, 1.2, 4), m); tip.rotation.x = Math.PI; tip.position.y = 0.6;
+  const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.42, 1.3, 0.42), m); shaft.position.y = 1.85;
+  enemyArrow.add(tip, shaft);
+  enemyArrow.traverse(o => { o.renderOrder = 999; });
+}
+enemyArrow.visible = false; scene.add(enemyArrow);
 const EMOTE_KEYS = { Digit1: 'wave', Digit2: 'cheer', Digit3: 'taunt', Digit4: 'dance' };
 addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT' || !inMatchNow() || !EMOTE_KEYS[e.code]) return;
@@ -2045,7 +2094,7 @@ function frame() {
     ch.flashT = Math.max(0, ch.flashT - dt);
     for (const m of ch.model.mats) {
       m.transparent = opacity < 1; m.opacity = opacity;
-      m.emissive.setHex(ch.flashT > 0 ? 0xffffff : st.sh ? 0x5a4a10 : st.pw ? 0x5a0d0d : st.sp ? 0x4a4200 : st.slow ? 0x103050 : 0x000000);
+      m.emissive.setHex(ch.flashT > 0 ? 0xffffff : st.sh ? 0x5a4a10 : st.pw ? 0x5a0d0d : st.sp ? 0x4a4200 : st.slow ? 0x103050 : m === ch.model.torsoMat ? ch.model.teamGlow : 0x000000);
     }
 
     // name tag
@@ -2164,6 +2213,27 @@ function updateHud(now) {
   $('#timer').textContent = s.phase === 'countdown' ? fmt(G.ROUND_TIME) : fmt(s.timer);
   $('#timer').classList.toggle('sudden', s.phase === 'sudden');
   const ktk = lobby.mode === 'ktk';
+  // goal banner: through the countdown + 3 s of fighting (a shorter one when joining mid-match)
+  if (!goalShown && !s.fin) {
+    goalShown = true;
+    const cd = s.phase === 'countdown' ? s.timer * 1000 : 0;
+    showGoal(lp, cd ? cd + 3000 : 4000);
+    if (ktk) enemyArrowUntil = now + (cd ? cd + 20000 : 10000);
+  }
+  const goalOn = now < goalUntil && !s.fin;
+  $('#goalBanner').classList.toggle('out', goalOn && goalUntil - now < 500);
+  $('#goalBanner').classList.toggle('hidden', !goalOn);
+  $('#hud').classList.toggle('goal', goalOn);
+  const enemyK = ktk && now < enemyArrowUntil && !s.fin && s.kg && s.kg[lp.team === 'red' ? 'blue' : 'red'];
+  const ekc = enemyK && chars.get(enemyK.id);
+  enemyArrow.visible = !!(ekc && ekc.model.group.visible);
+  if (enemyArrow.visible) {
+    const kp = ekc.model.group.position, d = pred ? Math.hypot(kp.x - pred.x, kp.z - pred.z) : 20;
+    enemyArrow.scale.setScalar(Math.min(5, Math.max(1.5, d / 9)));
+    enemyArrow.position.set(kp.x, kp.y + 4.2 + Math.sin(now / 180) * 0.35, kp.z);
+    enemyArrow.rotation.y += 0.03;
+    placeArrow($('#enemyKingArrow'), kp.x, kp.z);
+  } else $('#enemyKingArrow').style.display = 'none';
   const z = curMap.zones[s.zone.i];
   $('#zoneInfo').textContent = ktk
     ? (s.ot ? '⚡ OVERTIME' : s.fz ? '🔥 FINAL FRENZY — double damage' : 'Kill the enemy King · protect yours')
@@ -2238,7 +2308,7 @@ function updateHud(now) {
   else if (now < centerUntil) msg = $('#centerMsg').textContent;
   $('#centerMsg').textContent = msg;
   $('#subMsg').textContent = me.dead ? ''
-    : s.phase === 'countdown' ? (ktk ? `You are a ${G.ROLE_NAMES[lp.role] || 'fighter'} (${c.name}). Kill their King!` : `You are the ${c.name}. Get to the glowing zone!`)
+    : s.phase === 'countdown' ? (ktk ? `${G.ROLE_NAMES[lp.role] || 'Fighter'} · ${c.name}` : c.name)
     : me.prot ? 'Spawn protection' : '';
 
   $('#meName').textContent = lp.name;

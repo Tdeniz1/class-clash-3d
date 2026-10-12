@@ -91,7 +91,20 @@ function lobbyState(room) {
   };
 }
 
-function broadcastLobby(room) { io.to(room.code).emit('lobby', lobbyState(room)); }
+// Bots are named team + class (+ a number when a team has two of the same class): "Red Archer", "Blue Tank 2".
+// Free-for-all has no teams, so just the class.
+function nameBots(room) {
+  const groups = new Map();
+  for (const p of room.players.values()) {
+    if (!p.isBot || p.isKing) continue;
+    const base = (room.mode === 'ffa' ? '' : G.TEAM_NAMES[p.team] + ' ') + G.CLASSES[p.cls].name;
+    if (!groups.has(base)) groups.set(base, []);
+    groups.get(base).push(p);
+  }
+  for (const [base, list] of groups) list.forEach((p, i) => { p.name = list.length > 1 ? `${base} ${i + 1}` : base; });
+}
+
+function broadcastLobby(room) { nameBots(room); io.to(room.code).emit('lobby', lobbyState(room)); }
 
 function pickNewHost(room) {
   const h = humans(room).find(p => p.connected);
@@ -122,6 +135,16 @@ function initSim(room, p) {
   spawn(room, p, true);
 }
 
+// Is anything solid in the ~5 m behind a spawn point (where the camera sits)? side = -1 for Red (faces +x)
+function viewBlocked(map, x, z, side) {
+  for (let t = 0; t <= 5; t += 0.5) {
+    const cx = x + side * t;
+    if (map.pillars.some(pl => Math.hypot(pl.x - cx, pl.z - z) < pl.r + 1)) return true;
+    if (map.walls.some(w => Math.abs(w.x - cx) < w.w / 2 + 0.8 && Math.abs(w.z - z) < w.d / 2 + 0.8)) return true;
+  }
+  return false;
+}
+
 function spawn(room, p, initial) {
   if (p.nextCls && G.CLASS_ORDER.includes(p.nextCls)) { p.cls = p.nextCls; p.maxHp = Math.round(G.CLASSES[p.cls].hp * (room.overtime ? G.OVERTIME.HP : 1)); }
   p.nextCls = null;
@@ -131,6 +154,12 @@ function spawn(room, p, initial) {
     const side = p.team === 'red' ? -1 : 1;
     const line = initial || p.isKing ? G.ROLE_SPAWN[p.role || 'M'] : G.RESPAWN_LINE;
     pos = { x: side * line, y: 0, z: initial ? (p.lane || 0) : (Math.random() * 2 - 1) * 10 };
+    // slide sideways if a pillar or wall would sit between the camera and the player
+    const z0 = pos.z;
+    for (const dz of [0, 1.5, -1.5, 3, -3, 4.5, -4.5]) {
+      const z = Math.max(-room.map.halfZ + 2, Math.min(room.map.halfZ - 2, z0 + dz));
+      if (!viewBlocked(room.map, pos.x, z, side)) { pos.z = z; break; }
+    }
     G.resolveCollision(pos, room.map);
     yaw = side * Math.PI / 2; // face the other team
   } else {
