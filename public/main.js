@@ -2103,7 +2103,9 @@ function frame() {
     const isKing = lp && lp.isKing;
     const showTag = visible && (id !== myId ? (isKing || camD < 26) : !!ch.emote);
     ch.tag.classList.toggle('selftag', id === myId);
-    ch.tag.classList.toggle('far', !isKing && camD > 13);
+    // phones have less room: names only very close (teammates even closer; their color says enough)
+    const nameD = isTouch ? (lobby && lobby.mode !== 'ffa' && lp && lp.team === (lobbyPlayer(myId) || {}).team ? 6 : 8) : 13;
+    ch.tag.classList.toggle('far', !isKing && camD > nameD);
     if (showTag) {
       const p = screenPos(pos.x, pos.y + 2.5 * (G.CLASSES[lp ? lp.cls : 'gladiator'].size), pos.z);
       if (p.behind) ch.tag.style.display = 'none';

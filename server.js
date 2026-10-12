@@ -139,8 +139,8 @@ function initSim(room, p) {
 function viewBlocked(map, x, z, side) {
   for (let t = 0; t <= 5; t += 0.5) {
     const cx = x + side * t;
-    if (map.pillars.some(pl => Math.hypot(pl.x - cx, pl.z - z) < pl.r + 1)) return true;
-    if (map.walls.some(w => Math.abs(w.x - cx) < w.w / 2 + 0.8 && Math.abs(w.z - z) < w.d / 2 + 0.8)) return true;
+    if (map.pillars.some(pl => Math.hypot(pl.x - cx, pl.z - z) < pl.r + 2)) return true;
+    if (map.walls.some(w => Math.abs(w.x - cx) < w.w / 2 + 1.5 && Math.abs(w.z - z) < w.d / 2 + 1.5)) return true;
   }
   return false;
 }
@@ -156,7 +156,7 @@ function spawn(room, p, initial) {
     pos = { x: side * line, y: 0, z: initial ? (p.lane || 0) : (Math.random() * 2 - 1) * 10 };
     // slide sideways if a pillar or wall would sit between the camera and the player
     const z0 = pos.z;
-    for (const dz of [0, 1.5, -1.5, 3, -3, 4.5, -4.5]) {
+    for (const dz of [0, 1.5, -1.5, 3, -3, 4.5, -4.5, 6, -6]) {
       const z = Math.max(-room.map.halfZ + 2, Math.min(room.map.halfZ - 2, z0 + dz));
       if (!viewBlocked(room.map, pos.x, z, side)) { pos.z = z; break; }
     }

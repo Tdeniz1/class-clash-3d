@@ -414,7 +414,7 @@ body { position: fixed; inset: 0; }
 }
 body.ktk .zone-info { display: none; }
 
-.tag.far > div:first-child { display: none; }
+.tag.far > div:first-of-type { display: none; }
 .tag.far .bar { width: 36px; height: 4px; }
 body.touch.ktk .score-list li:nth-child(n+5) { display: none; }
 /* phones: keep things scrolled into view clear of the pinned Ready/Start bar */
