@@ -10,7 +10,7 @@ A browser-based, third-person 3D multiplayer arena game. Friends join from any p
 
 I'm using this repository for an AI competition: the **Handshake AI Skills Studio × OpenAI Multiplayer Game Challenge** (entries due October 30, 2026). The challenge is to build a real-time multiplayer game that anyone can join from their own device with a room code, by guiding an AI through the design, build and debugging.
 
-This repo is my working prototype and design reference for that project. It was built with AI assistance (Claude Code, by Anthropic): I made the design decisions (modes, classes, the draft, the King, the crowd, the finale) and directed and play-tested each change, and the AI wrote and tested the code. The challenge's official rules say the submitted project must be built in ChatGPT, so this repo is the reference, not the official entry.
+This repo is my working prototype and design reference for that project. It was built with AI assistance (Chat GPT, by OpenAI): I made the design decisions (modes, classes, the draft, the King, the crowd, the finale) and directed and play-tested each change, and the AI wrote and tested the code. The challenge's official rules say the submitted project must be built in ChatGPT.
 
 ![Castles, mountains and the dragon](docs/screenshots/castle-dragon.png)
 
